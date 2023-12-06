@@ -4,7 +4,7 @@
       "target_name": "xla",
       'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",
-        "src",
+        ".",
         "/usr/local/include",
         "/home/jarin/projects/xla-rs/xla_extension/include"
        ],
