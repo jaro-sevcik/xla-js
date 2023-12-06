@@ -60,10 +60,10 @@ private:
   std::unique_ptr<xla::PjRtClient> client_;
 };
 
-Napi::Value XlaClient::Compile(const Napi::CallbackInfo& info){
-    Napi::Env env = info.Env();
-    printf("Compiling!");
-    return env.Null();
+Napi::Value XlaClient::Compile(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  printf("Compiling!");
+  return env.Null();
 }
 
 XlaClient::XlaClient(const Napi::CallbackInfo &info)
@@ -72,7 +72,8 @@ XlaClient::XlaClient(const Napi::CallbackInfo &info)
 
   auto client_status = xla::GetTfrtCpuClient(false);
   if (!client_status.ok()) {
-    Napi::Error::New(env, "XLA client initialization failed").ThrowAsJavaScriptException();
+    Napi::Error::New(env, "XLA client initialization failed")
+        .ThrowAsJavaScriptException();
     return;
   }
 
@@ -80,66 +81,125 @@ XlaClient::XlaClient(const Napi::CallbackInfo &info)
 }
 
 Napi::Object XlaClient::Init(Napi::Env env, Napi::Object exports) {
-  Napi::Function func = DefineClass(
-      env, "Client",
-      {
-          InstanceMethod(
-              "compile", &XlaClient::Compile, static_cast<napi_property_attributes>(
-                              napi_writable | napi_configurable)),
-      });
+  Napi::Function func =
+      DefineClass(env, "Client",
+                  {
+                      InstanceMethod("compile", &XlaClient::Compile,
+                                     static_cast<napi_property_attributes>(
+                                         napi_writable | napi_configurable)),
+                  });
 
   exports.Set("Client", func);
   return exports;
 }
+template <class T, typename TPtr>
+class ReferenceWrapper : public Napi::ObjectWrap<T> {
+public:
+  ReferenceWrapper(const Napi::CallbackInfo &info);
 
-class XlaBuilderWrapper : public Napi::ObjectWrap<XlaBuilderWrapper> {
-  public:
-    static Napi::Object Init(Napi::Env env, Napi::Object exports);
-    XlaBuilderWrapper(const Napi::CallbackInfo& info);
-    Napi::Value Build(const Napi::CallbackInfo& info);
+  static Napi::Object Create(Napi::Env env, TPtr *op);
+  static TPtr *FromValue(Napi::Env env, Napi::Value value);
 
+protected:
+  static Napi::FunctionReference constructor;
+  static napi_type_tag type_tag_;
 
-    static xla::XlaBuilder* BuilderFromValue(Napi::Env env, Napi::Value value);
-  private:
-    static napi_type_tag type_tag_;
-    std::unique_ptr<xla::XlaBuilder> builder_;
-
-    xla::XlaBuilder* builder() { return builder_.get(); }
+  std::unique_ptr<TPtr> value_;
 };
 
-napi_type_tag XlaBuilderWrapper::type_tag_ = { 0xdf6e6fbb6c724f60ULL, 0x842a52de6b318691ULL };
+template <class T, typename TPtr>
+Napi::Object ReferenceWrapper<T, TPtr>::Create(Napi::Env env, TPtr *op) {
+  auto r = Napi::External<TPtr>::New(env, op);
+  r.TypeTag(&type_tag_);
+  return ReferenceWrapper::constructor.New({r});
+}
+
+// static
+template <class T, typename TPtr>
+TPtr *ReferenceWrapper<T, TPtr>::FromValue(Napi::Env env, Napi::Value value) {
+  if (!value.IsObject() || !value.As<Napi::Object>().CheckTypeTag(&type_tag_)) {
+    Napi::Error::New(env, "Invalid argument").ThrowAsJavaScriptException();
+    return nullptr;
+  }
+
+  return ReferenceWrapper<T, TPtr>::Unwrap(value.As<Napi::Object>())
+      ->value_.get();
+}
+
+template <class T, typename TPtr>
+ReferenceWrapper<T, TPtr>::ReferenceWrapper(const Napi::CallbackInfo &info)
+    : Napi::ObjectWrap<T>(info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsExternal()) {
+    Napi::Error::New(env, "Wrapper can only be created with external ref")
+        .ThrowAsJavaScriptException();
+    return;
+  }
+  auto wrapper_ptr_value = info[0].As<Napi::External<TPtr>>();
+  if (!wrapper_ptr_value.CheckTypeTag(&type_tag_)) {
+    Napi::Error::New(env, "Wrapper can only be created with external ref")
+        .ThrowAsJavaScriptException();
+    return;
+  }
+
+  value_.reset(wrapper_ptr_value.Data());
+}
+
+class XlaBuilderWrapper : public Napi::ObjectWrap<XlaBuilderWrapper> {
+public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports);
+  XlaBuilderWrapper(const Napi::CallbackInfo &info);
+  Napi::Value Build(const Napi::CallbackInfo &info);
+
+  static xla::XlaBuilder *BuilderFromValue(Napi::Env env, Napi::Value value);
+
+private:
+  static napi_type_tag type_tag_;
+  std::unique_ptr<xla::XlaBuilder> builder_;
+
+  xla::XlaBuilder *builder() { return builder_.get(); }
+};
+
+napi_type_tag XlaBuilderWrapper::type_tag_ = {0xdf6e6fbb6c724f60ULL,
+                                              0x842a52de6b318691ULL};
 
 Napi::Object XlaBuilderWrapper::Init(Napi::Env env, Napi::Object exports) {
-  Napi::Function func = DefineClass(
-      env, "XlaBuilder",
-      {
-          InstanceMethod(
-              "build", &XlaBuilderWrapper::Build, static_cast<napi_property_attributes>(
-                              napi_writable | napi_configurable)),
-      });
+  Napi::Function func =
+      DefineClass(env, "XlaBuilder",
+                  {
+                      InstanceMethod("build", &XlaBuilderWrapper::Build,
+                                     static_cast<napi_property_attributes>(
+                                         napi_writable | napi_configurable)),
+                  });
 
   exports.Set("XlaBuilder", func);
   return exports;
 }
 
-// static 
-xla::XlaBuilder* XlaBuilderWrapper::BuilderFromValue(Napi::Env env, Napi::Value value) {
+// static
+xla::XlaBuilder *XlaBuilderWrapper::BuilderFromValue(Napi::Env env,
+                                                     Napi::Value value) {
   if (!value.IsObject() || !value.As<Napi::Object>().CheckTypeTag(&type_tag_)) {
-        Napi::Error::New(env, "XlaBuilder instance expected").ThrowAsJavaScriptException();
-        return nullptr;
+    Napi::Error::New(env, "XlaBuilder instance expected")
+        .ThrowAsJavaScriptException();
+    return nullptr;
   }
 
   return XlaBuilderWrapper::Unwrap(value.As<Napi::Object>())->builder();
 }
 
-XlaBuilderWrapper::XlaBuilderWrapper(const Napi::CallbackInfo& info) : Napi::ObjectWrap<XlaBuilderWrapper>(info) {
+XlaBuilderWrapper::XlaBuilderWrapper(const Napi::CallbackInfo &info)
+    : Napi::ObjectWrap<XlaBuilderWrapper>(info) {
   Napi::Env env = info.Env();
 
   info.This().As<Napi::Object>().TypeTag(&type_tag_);
 
   if (info.Length() != 1 || !info[0].IsString()) {
-        Napi::Error::New(env, "XlaBuilder constructor expects string name as its single argument").ThrowAsJavaScriptException();
-        return;
+    Napi::Error::New(
+        env,
+        "XlaBuilder constructor expects string name as its single argument")
+        .ThrowAsJavaScriptException();
+    return;
   }
 
   auto str = info[0].As<Napi::String>().Utf8Value();
@@ -147,48 +207,40 @@ XlaBuilderWrapper::XlaBuilderWrapper(const Napi::CallbackInfo& info) : Napi::Obj
   this->builder_.reset(new xla::XlaBuilder(str.c_str()));
 }
 
-
-Napi::Value XlaBuilderWrapper::Build(const Napi::CallbackInfo& info){
-    Napi::Env env = info.Env();
-    printf("Building!");
-    return env.Null();
+Napi::Value XlaBuilderWrapper::Build(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1) {
+    Napi::Error::New(env,
+                     "XlaBuilder.Build expects XlaOp as its single argument")
+        .ThrowAsJavaScriptException();
+  }
+  return env.Null();
 }
 
-class XlaOpWrapper: public Napi::ObjectWrap<XlaOpWrapper> {
-  public:
-    static Napi::Object Init(Napi::Env env, Napi::Object exports);
-    XlaOpWrapper(const Napi::CallbackInfo& info);
+class XlaOpWrapper : public ReferenceWrapper<XlaOpWrapper, xla::XlaOp> {
+public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports);
+  XlaOpWrapper(const Napi::CallbackInfo &info)
+      : ReferenceWrapper<XlaOpWrapper, xla::XlaOp>(info) {}
 
-    Napi::Value Dump(const Napi::CallbackInfo& info);
-
-    static Napi::Object create(Napi::Env env, xla::XlaOp *op);
-  private:
-    static Napi::FunctionReference constructor;
-    static napi_type_tag type_tag_;
-
-    std::unique_ptr<xla::XlaOp> op_;
+  Napi::Value Dump(const Napi::CallbackInfo &info);
 };
 
-napi_type_tag XlaOpWrapper::type_tag_ = { 0xdf6e6fbb6c724f60ULL, 0x842a52de6b318690ULL };
-
-Napi::FunctionReference XlaOpWrapper::constructor;
-
-// static 
-Napi::Object XlaOpWrapper::create(Napi::Env env, xla::XlaOp *op) {
-  auto r = Napi::External<xla::XlaOp>::New(env, op);
-  r.TypeTag(&type_tag_);
-  return XlaOpWrapper::constructor.New({r});
-
-}
+template <>
+napi_type_tag ReferenceWrapper<XlaOpWrapper, xla::XlaOp>::type_tag_ = {
+    0xdf6e6fbb6c724f60ULL, 0x842a52de6b318692ULL};
+template <>
+Napi::FunctionReference
+    ReferenceWrapper<XlaOpWrapper, xla::XlaOp>::constructor = {};
 
 Napi::Object XlaOpWrapper::Init(Napi::Env env, Napi::Object exports) {
-  Napi::Function func = DefineClass(
-      env, "XlaOp",
-      {
-          InstanceMethod(
-              "dump", &XlaOpWrapper::Dump, static_cast<napi_property_attributes>(
-                              napi_writable | napi_configurable)),
-      });
+  Napi::Function func =
+      DefineClass(env, "XlaOp",
+                  {
+                      InstanceMethod("dump", &XlaOpWrapper::Dump,
+                                     static_cast<napi_property_attributes>(
+                                         napi_writable | napi_configurable)),
+                  });
 
   constructor = Napi::Persistent(func);
   constructor.SuppressDestruct();
@@ -196,56 +248,29 @@ Napi::Object XlaOpWrapper::Init(Napi::Env env, Napi::Object exports) {
   return exports;
 }
 
-XlaOpWrapper::XlaOpWrapper(const Napi::CallbackInfo& info) : Napi::ObjectWrap<XlaOpWrapper>(info) {
-  Napi::Env env = info.Env();
-  if (info.Length() != 1 || !info[0].IsExternal()) {
-        Napi::Error::New(env, "XlaOp can only be created with external ref").ThrowAsJavaScriptException();
-        return;
-  }
-  auto wrapper_ptr_value = info[0].As<Napi::External<xla::XlaOp>>();
-  if (!wrapper_ptr_value.CheckTypeTag(&type_tag_)) {
-        Napi::Error::New(env, "XlaOp can only be created with external ref").ThrowAsJavaScriptException();
-        return;
-  }
-
-  op_.reset(wrapper_ptr_value.Data());
-}
-
-Napi::Value XlaOpWrapper::Dump(const Napi::CallbackInfo& info) {
-  std::cout << *(op_.get()) << "\n";
+Napi::Value XlaOpWrapper::Dump(const Napi::CallbackInfo &info) {
+  std::cout << *(value_.get()) << "\n";
   return info.Env().Null();
 }
 
-class XlaComputationWrapper: public Napi::ObjectWrap<XlaComputationWrapper> {
-  public:
-    static Napi::Object Init(Napi::Env env, Napi::Object exports);
-    XlaComputationWrapper(const Napi::CallbackInfo& info);
-
-    Napi::Value Dump(const Napi::CallbackInfo& info);
-
-    static Napi::Object create(Napi::Env env, xla::XlaComputation *op);
-  private:
-    static Napi::FunctionReference constructor;
-    static napi_type_tag type_tag_;
-
-    std::unique_ptr<xla::XlaComputation> op_;
+class XlaComputationWrapper
+    : public ReferenceWrapper<XlaComputationWrapper, xla::XlaComputation> {
+public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports);
+  XlaComputationWrapper(const Napi::CallbackInfo &info)
+      : ReferenceWrapper<XlaComputationWrapper, xla::XlaComputation>(info) {}
 };
 
-napi_type_tag XlaComputationWrapper::type_tag_ = { 0xdf6e6fbb6c724f60ULL, 0x842a52de6b318692ULL };
-
-Napi::FunctionReference XlaComputationWrapper::constructor;
-
-// static 
-Napi::Object XlaComputationWrapper::create(Napi::Env env, xla::XlaComputation *op) {
-  auto r = Napi::External<xla::XlaComputation>::New(env, op);
-  r.TypeTag(&type_tag_);
-  return XlaComputationWrapper::constructor.New({r});
-}
+template <>
+napi_type_tag
+    ReferenceWrapper<XlaComputationWrapper, xla::XlaComputation>::type_tag_ = {
+        0xdf6e6fbb6c724f60ULL, 0x842a52de6b318692ULL};
+template <>
+Napi::FunctionReference ReferenceWrapper<XlaComputationWrapper,
+                                         xla::XlaComputation>::constructor = {};
 
 Napi::Object XlaComputationWrapper::Init(Napi::Env env, Napi::Object exports) {
-  Napi::Function func = DefineClass(
-      env, "XlaComputation",
-      {});
+  Napi::Function func = DefineClass(env, "XlaComputation", {});
 
   constructor = Napi::Persistent(func);
   constructor.SuppressDestruct();
@@ -253,22 +278,6 @@ Napi::Object XlaComputationWrapper::Init(Napi::Env env, Napi::Object exports) {
   exports.Set("XlaComputation", func);
   return exports;
 }
-
-XlaComputationWrapper::XlaComputationWrapper(const Napi::CallbackInfo& info) : Napi::ObjectWrap<XlaComputationWrapper>(info) {
-  Napi::Env env = info.Env();
-  if (info.Length() != 1 || !info[0].IsExternal()) {
-        Napi::Error::New(env, "XlaComputation can only be created with external ref").ThrowAsJavaScriptException();
-        return;
-  }
-  auto wrapper_ptr_value = info[0].As<Napi::External<xla::XlaComputation>>();
-  if (!wrapper_ptr_value.CheckTypeTag(&type_tag_)) {
-        Napi::Error::New(env, "XlaComputation can only be created with external ref").ThrowAsJavaScriptException();
-        return;
-  }
-
-  op_.reset(wrapper_ptr_value.Data());
-}
-
 
 static absl::StatusOr<float> example() {
   ASSIGN_OR_RETURN(client, xla::GetTfrtCpuClient(false));
@@ -304,17 +313,20 @@ static absl::StatusOr<float> example() {
   return out->data<float>()[0];
 }
 
-Napi::Value ConstantR0F32(const Napi::CallbackInfo& info) {
+Napi::Value ConstantR0F32(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsNumber()) {
-        Napi::Error::New(env, "ConstantR0 expects a builder and a number").ThrowAsJavaScriptException();
-        return env.Null();
+    Napi::Error::New(env, "ConstantR0 expects a builder and a number")
+        .ThrowAsJavaScriptException();
+    return env.Null();
   }
 
   auto builder = XlaBuilderWrapper::BuilderFromValue(env, info[0]);
-  if (!builder) return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::ConstantR0<float>(builder, info[1].As<Napi::Number>()));
-  return XlaOpWrapper::create(env, op);
+  if (!builder)
+    return env.Null();
+  xla::XlaOp *op = new xla::XlaOp(
+      xla::ConstantR0<float>(builder, info[1].As<Napi::Number>()));
+  return XlaOpWrapper::Create(env, op);
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -327,7 +339,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   XlaOpWrapper::Init(env, exports);
   XlaComputationWrapper::Init(env, exports);
 
-  exports.Set(Napi::String::New(env, "constantR0f32"), Napi::Function::New<ConstantR0F32>(env));
+  exports.Set(Napi::String::New(env, "constantR0f32"),
+              Napi::Function::New<ConstantR0F32>(env));
 
   printf("Hello!?\n");
   return exports;
