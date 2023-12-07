@@ -11,6 +11,29 @@
     return temp.status();                                                      \
   auto name = std::move(temp.value());
 
+#define ASSIGN_OR_THROW(name, rhs)                                             \
+  ASSIGN_OR_THROW_WITH_TEMP(                                                   \
+      CONCAT(name, __COUNTER__), name, rhs,                                    \
+      CONCAT(name, __COUNTER__).status().ToString().c_str(), env.Null())
+
+#define ASSIGN_OR_THROW_RETURN(name, rhs)                                      \
+  ASSIGN_OR_THROW_WITH_TEMP(                                                   \
+      CONCAT(name, __COUNTER__), name, rhs,                                    \
+      CONCAT(name, __COUNTER__).status().ToString().c_str(),                   \
+      /**/)
+
+#define ASSIGN_OR_THROW_MESSAGE(name, rhs, message)                            \
+  ASSIGN_OR_THROW_WITH_TEMP(CONCAT(name, __COUNTER__), name, rhs, message,     \
+                            env.Null())
+
+#define ASSIGN_OR_THROW_WITH_TEMP(temp, name, rhs, message, retval)            \
+  auto temp = (rhs);                                                           \
+  if (!temp.ok()) {                                                            \
+    Napi::Error::New(env, message).ThrowAsJavaScriptException();               \
+    return retval;                                                             \
+  }                                                                            \
+  auto name = std::move(temp.value());
+
 // We need:
 // - client
 // - builder
@@ -25,41 +48,39 @@
 // client: createClient.
 // builder: normal constructor.
 
-class XlaClient : public Napi::ObjectWrap<XlaClient> {
-public:
-  static Napi::Object Init(Napi::Env env, Napi::Object exports);
-  XlaClient(const Napi::CallbackInfo &info);
-  Napi::Value Compile(const Napi::CallbackInfo &info);
-
-private:
-  std::unique_ptr<xla::PjRtClient> client_;
-};
-
-Napi::Value XlaClient::Compile(const Napi::CallbackInfo &info) {
+Napi::Value PjRtClient::Compile(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  printf("Compiling!");
-  return env.Null();
-}
+  const char *msg = "Client.build expects executable and options as arguments";
 
-XlaClient::XlaClient(const Napi::CallbackInfo &info)
-    : Napi::ObjectWrap<XlaClient>(info) {
-  Napi::Env env = info.Env();
-
-  auto client_status = xla::GetTfrtCpuClient(false);
-  if (!client_status.ok()) {
-    Napi::Error::New(env, "XLA client initialization failed")
-        .ThrowAsJavaScriptException();
-    return;
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
   }
 
-  this->client_ = std::move(client_status.value());
+  auto computation = XlaComputationWrapper::FromValue(env, info[0]);
+
+  ASSIGN_OR_THROW(loaded_executable,
+                  client_->Compile(*computation, xla::CompileOptions{}));
+
+  printf("Compiling!\n");
+
+  auto le = loaded_executable.release();
+  return PjRtLoadedExecutableWrapper::Create(env, le);
 }
 
-Napi::Object XlaClient::Init(Napi::Env env, Napi::Object exports) {
+PjRtClient::PjRtClient(const Napi::CallbackInfo &info)
+    : Napi::ObjectWrap<PjRtClient>(info) {
+  Napi::Env env = info.Env();
+
+  ASSIGN_OR_THROW_RETURN(client, xla::GetTfrtCpuClient(false));
+  this->client_ = std::move(client);
+}
+
+Napi::Object PjRtClient::Init(Napi::Env env, Napi::Object exports) {
   Napi::Function func =
       DefineClass(env, "Client",
                   {
-                      InstanceMethod("compile", &XlaClient::Compile,
+                      InstanceMethod("compile", &PjRtClient::Compile,
                                      static_cast<napi_property_attributes>(
                                          napi_writable | napi_configurable)),
                   });
@@ -67,26 +88,6 @@ Napi::Object XlaClient::Init(Napi::Env env, Napi::Object exports) {
   exports.Set("Client", func);
   return exports;
 }
-template <class T, typename TPtr>
-class ReferenceWrapper : public Napi::ObjectWrap<T> {
-public:
-  ReferenceWrapper(const Napi::CallbackInfo &info, TPtr *ptr = nullptr);
-
-  static Napi::Object
-  Init(Napi::Env env, Napi::Object exports, const char *name,
-       const std::initializer_list<Napi::ClassPropertyDescriptor<T>>
-           &properties);
-  static Napi::Object Create(Napi::Env env, TPtr *op);
-  static TPtr *FromValue(Napi::Env env, Napi::Value value);
-
-  TPtr *value() { return value_.get(); }
-
-protected:
-  static Napi::FunctionReference constructor;
-  static napi_type_tag type_tag_;
-
-  std::unique_ptr<TPtr> value_;
-};
 
 template <class T, typename TPtr>
 Napi::FunctionReference ReferenceWrapper<T, TPtr>::constructor = {};
@@ -111,7 +112,7 @@ template <class T, typename TPtr>
 Napi::Object ReferenceWrapper<T, TPtr>::Create(Napi::Env env, TPtr *op) {
   auto r = Napi::External<TPtr>::New(env, op);
   r.TypeTag(&type_tag_);
-  return ReferenceWrapper::constructor.New({r});
+  return ReferenceWrapper<T, TPtr>::constructor.New({r});
 }
 
 // static
@@ -154,29 +155,6 @@ ReferenceWrapper<T, TPtr>::ReferenceWrapper(const Napi::CallbackInfo &info,
   value_.reset(wrapper_ptr_value.Data());
 }
 
-class XlaBuilderWrapper
-    : public ReferenceWrapper<XlaBuilderWrapper, xla::XlaBuilder> {
-public:
-  static Napi::Object Init(Napi::Env env, Napi::Object exports);
-  XlaBuilderWrapper(const Napi::CallbackInfo &info)
-      : ReferenceWrapper<XlaBuilderWrapper, xla::XlaBuilder>(
-            info, createBuilder(info)) {}
-
-  Napi::Value Build(const Napi::CallbackInfo &info);
-
-private:
-  static xla::XlaBuilder *createBuilder(const Napi::CallbackInfo &info);
-};
-
-class XlaOpWrapper : public ReferenceWrapper<XlaOpWrapper, xla::XlaOp> {
-public:
-  static Napi::Object Init(Napi::Env env, Napi::Object exports);
-  XlaOpWrapper(const Napi::CallbackInfo &info)
-      : ReferenceWrapper<XlaOpWrapper, xla::XlaOp>(info) {}
-
-  Napi::Value Dump(const Napi::CallbackInfo &info);
-};
-
 template <>
 napi_type_tag ReferenceWrapper<XlaOpWrapper, xla::XlaOp>::type_tag_ = {
     0xdf6e6fbb6c724f60ULL, 0x842a52de6b318692ULL};
@@ -196,14 +174,6 @@ Napi::Value XlaOpWrapper::Dump(const Napi::CallbackInfo &info) {
   return info.Env().Null();
 }
 
-class XlaComputationWrapper
-    : public ReferenceWrapper<XlaComputationWrapper, xla::XlaComputation> {
-public:
-  static Napi::Object Init(Napi::Env env, Napi::Object exports);
-  XlaComputationWrapper(const Napi::CallbackInfo &info)
-      : ReferenceWrapper<XlaComputationWrapper, xla::XlaComputation>(info) {}
-};
-
 // XlaComputation wrapper
 template <>
 napi_type_tag
@@ -215,28 +185,87 @@ Napi::Object XlaComputationWrapper::Init(Napi::Env env, Napi::Object exports) {
       env, exports, "XlaComputation", {});
 }
 
-class LoadedExecutableWrapper
-    : public ReferenceWrapper<LoadedExecutableWrapper,
-                              xla::PjRtLoadedExecutable> {
-public:
-  static Napi::Object Init(Napi::Env env, Napi::Object exports);
-  LoadedExecutableWrapper(const Napi::CallbackInfo &info)
-      : ReferenceWrapper<LoadedExecutableWrapper, xla::PjRtLoadedExecutable>(
-            info) {}
-};
-
-// LoadedExecutable wrapper
+// PjRtLoadedExecutable wrapper
 template <>
-napi_type_tag ReferenceWrapper<LoadedExecutableWrapper,
+napi_type_tag ReferenceWrapper<PjRtLoadedExecutableWrapper,
                                xla::PjRtLoadedExecutable>::type_tag_ = {
     0xdf6e6fbb6c724f60ULL, 0x842a52de6b318693ULL};
 
-Napi::Object LoadedExecutableWrapper::Init(Napi::Env env,
-                                           Napi::Object exports) {
-  return ReferenceWrapper<LoadedExecutableWrapper,
-                          xla::PjRtLoadedExecutable>::Init(env, exports,
-                                                           "LoadedExecutable",
-                                                           {});
+Napi::Object PjRtLoadedExecutableWrapper::Init(Napi::Env env,
+                                               Napi::Object exports) {
+  return ReferenceWrapper<PjRtLoadedExecutableWrapper,
+                          xla::PjRtLoadedExecutable>::
+      Init(env, exports, "PjRtLoadedExecutable",
+           {InstanceMethod("execute", &PjRtLoadedExecutableWrapper::Execute,
+                           static_cast<napi_property_attributes>(
+                               napi_writable | napi_configurable))});
+}
+
+Napi::Value
+PjRtLoadedExecutableWrapper::Execute(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  // TODO thread through the inputs!
+  ASSIGN_OR_THROW(results, value()->Execute({{}}, {}));
+
+  auto result_array = Napi::Array::New(env, results.size());
+  for (size_t i = 0; i < results.size(); i++) {
+    auto &outer = results[i];
+    auto inner_array = Napi::Array::New(env, outer.size());
+    for (size_t j = 0; j < outer.size(); j++) {
+      auto &inner = outer[j];
+      inner_array.Set(j, PjRtBufferWrapper::Create(env, inner.release()));
+    }
+    result_array.Set(i, inner_array);
+  }
+  return result_array;
+}
+
+// PjRtBuffer wrapper
+template <>
+napi_type_tag ReferenceWrapper<PjRtBufferWrapper, xla::PjRtBuffer>::type_tag_ =
+    {0xdf6e6fbb6c724f60ULL, 0x842a52de6b318694ULL};
+
+Napi::Object PjRtBufferWrapper::Init(Napi::Env env, Napi::Object exports) {
+  return ReferenceWrapper<PjRtBufferWrapper, xla::PjRtBuffer>::Init(
+      env, exports, "PjRtBuffer",
+      {
+          InstanceMethod("toLiteralSync", &PjRtBufferWrapper::ToLiteralSync,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+      });
+}
+
+Napi::Value PjRtBufferWrapper::ToLiteralSync(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  ASSIGN_OR_THROW(literal_sp, value()->ToLiteralSync());
+
+  xla::Literal *literal = new xla::Literal(std::move(*literal_sp));
+
+  return LiteralWrapper::Create(env, literal);
+}
+
+// Literal wrapper
+template <>
+napi_type_tag ReferenceWrapper<LiteralWrapper, xla::Literal>::type_tag_ = {
+    0xdf6e6fbb6c724f60ULL, 0x842a52de6b318695ULL};
+
+Napi::Object LiteralWrapper::Init(Napi::Env env, Napi::Object exports) {
+  return ReferenceWrapper<LiteralWrapper, xla::Literal>::Init(
+      env, exports, "Literal",
+      {
+          InstanceMethod("getFirstElementF32",
+                         &LiteralWrapper::GetFirstElementF32,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+
+      });
+}
+
+Napi::Value LiteralWrapper::GetFirstElementF32(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  float result = value()->GetFirstElement<float>();
+  return Napi::Number::New(env, result);
 }
 
 // XlaBuilder wrapper
@@ -275,59 +304,18 @@ Napi::Value XlaBuilderWrapper::Build(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   if (info.Length() != 1) {
     Napi::Error::New(env,
-                     "XlaBuilder.Build expects XlaOp as its single argument")
+                     "XlaBuilder.build expects XlaOp as its single argument")
         .ThrowAsJavaScriptException();
     return env.Null();
   }
-  xla::XlaOp *op = XlaOpWrapper::FromValue(env, info[1]);
+  xla::XlaOp *op = XlaOpWrapper::FromValue(env, info[0]);
   if (env.IsExceptionPending())
     return env.Null();
 
-  auto computation_or_status = this->value()->Build(op);
-  if (!computation_or_status.ok()) {
-    Napi::Error::New(env, computation_or_status.status().ToString().c_str())
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
+  ASSIGN_OR_THROW(computation_instance, this->value()->Build(op));
 
-  xla::XlaComputation *computation =
-      new xla::XlaComputation(std::move(computation_or_status.value()));
-
-  return XlaComputationWrapper::Create(env, computation);
-}
-
-static absl::StatusOr<float> example() {
-  ASSIGN_OR_RETURN(client, xla::GetTfrtCpuClient(false));
-
-  printf("X: %i\n", __LINE__);
-
-  xla::XlaBuilder *builder = new xla::XlaBuilder("fn");
-  printf("X: %i\n", __LINE__);
-  xla::XlaOp op = xla::ConstantR1<float>(builder, {42.1f, 42.4f});
-  printf("X: %i\n", __LINE__);
-
-  ASSIGN_OR_RETURN(executable, builder->Build(&op));
-  printf("X: %i\n", __LINE__);
-
-  ASSIGN_OR_RETURN(loaded_executable,
-                   client->Compile(executable, xla::CompileOptions{}));
-  printf("X: %i\n", __LINE__);
-
-  // auto local_literal = xla::LiteralUtil::CreateR0<float>(3.0f);
-  // ASSIGN_OR_RETURN(arg, client->BufferFromHostLiteral(local_literal,
-  // client->devices()[0]));
-
-  ASSIGN_OR_RETURN(results, loaded_executable->Execute({{}}, {}));
-  printf("X: %i\n", __LINE__);
-
-  ASSIGN_OR_RETURN(out, results[0][0]->ToLiteralSync());
-
-  printf("X: %i\n", __LINE__);
-  std::cout << out->shape().ToString()
-            << " (dims: " << out->shape().dimensions_size() << ")\n";
-  printf("X: %i\n", __LINE__);
-
-  return out->data<float>()[0];
+  return XlaComputationWrapper::Create(
+      env, new xla::XlaComputation(std::move(computation_instance)));
 }
 
 Napi::Value ConstantR0F32(const Napi::CallbackInfo &info) {
@@ -351,10 +339,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 
   // example();
 
-  XlaClient::Init(env, exports);
+  PjRtClient::Init(env, exports);
   XlaBuilderWrapper::Init(env, exports);
   XlaOpWrapper::Init(env, exports);
   XlaComputationWrapper::Init(env, exports);
+  PjRtLoadedExecutableWrapper::Init(env, exports);
+  PjRtBufferWrapper::Init(env, exports);
+  LiteralWrapper::Init(env, exports);
 
   exports.Set(Napi::String::New(env, "constantR0f32"),
               Napi::Function::New<ConstantR0F32>(env));

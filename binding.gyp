@@ -19,7 +19,8 @@
            "<!(node ./libs)"
       ],
       "sources": [
-        "<!@(ls -1 *.cc)"
+        "xla_js.cc",
+        "xla_js.h"
       ],
     }
   ]

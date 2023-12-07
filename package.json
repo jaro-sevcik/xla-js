@@ -4,20 +4,23 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-      "build": "node-gyp build",
-      "install": "node-gyp rebuild",
-      "start": "node ./index.js",
-      "debug": "node-gyp build --debug -j1 CXXFLAGS=\"-Wno-deprecated -Wno-deprecated-declarations\"",
-      "configure": "node-gyp configure",
-      "configure:xcode": "node-gyp configure -- -f xcode",
-      "configure:cmake": "node-gyp configure -- -f cmake",
-      "cfg": "npm run configure && npm run configure:xcode && npm run configure:cmake",
-      "clean": "node-gyp clean"
+        "build": "node-gyp build",
+        "install": "node-gyp rebuild",
+        "start": "node ./index.js",
+        "debug": "node-gyp build --debug -j1 CXXFLAGS=\"-Wno-deprecated -Wno-deprecated-declarations\"",
+        "configure": "node-gyp configure",
+        "configure:xcode": "node-gyp configure -- -f xcode",
+        "configure:cmake": "node-gyp configure -- -f cmake",
+        "cfg": "npm run configure && npm run configure:xcode && npm run configure:cmake",
+        "clean": "node-gyp clean"
     },
     "author": "Stefan-Gabriel Muscalu <stefan.gabriel.muscalu@gmail.com> (http://my.corneroftheinternet.rocks/)",
     "license": "MIT",
     "dependencies": {
-      "bindings": "^1.5.0",
-      "node-addon-api": "^7.0"
+        "bindings": "^1.5.0",
+        "node-addon-api": "^7.0"
+    },
+    "devDependencies": {
+        "clang-format": "^1.8.0"
     }
-  }
+}
