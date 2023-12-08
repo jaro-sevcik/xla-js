@@ -298,6 +298,18 @@ Napi::Object LiteralWrapper::Init(Napi::Env env, Napi::Object exports) {
                          &LiteralWrapper::GetFirstElementF32,
                          static_cast<napi_property_attributes>(
                              napi_writable | napi_configurable)),
+          InstanceMethod("data", &LiteralWrapper::Data,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+          InstanceMethod("shape", &LiteralWrapper::Shape,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+          InstanceMethod("reshape", &LiteralWrapper::Reshape,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+          InstanceMethod("toString", &LiteralWrapper::ToString,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
           StaticMethod("createR0", &LiteralWrapper::CreateR0,
                        static_cast<napi_property_attributes>(
                            napi_writable | napi_configurable)),
@@ -311,6 +323,77 @@ Napi::Value LiteralWrapper::GetFirstElementF32(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   float result = value()->GetFirstElement<float>();
   return Napi::Number::New(env, result);
+}
+
+namespace {
+
+template <typename T>
+Napi::Array napiArrayFromXlaArray(Napi::Env env, absl::Span<T> data) {
+  Napi::Array result = Napi::Array::New(env, data.size());
+  for (size_t i = 0; i < data.size(); i++) {
+    result[i] = Napi::Number::New(env, data[i]);
+  }
+  return result;
+}
+
+} // namespace
+
+Napi::Value LiteralWrapper::Data(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsString()) {
+    Napi::Error::New(
+        env,
+        "Data requires a primitive type and a number constant as arguments")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string ptype = info[0].As<Napi::String>().Utf8Value();
+
+  if (ptype == "F32") {
+    auto data = value()->data<float>();
+    return napiArrayFromXlaArray<const float>(env, data);
+  }
+
+  Napi::Error::New(env, "data(): unsupported primitive type")
+      .ThrowAsJavaScriptException();
+  return env.Null();
+}
+
+Napi::Value LiteralWrapper::Shape(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  auto shape = new xla::Shape(value()->shape());
+  return ShapeWrapper::Create(env, shape);
+}
+
+Napi::Value LiteralWrapper::Reshape(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg =
+      "Reshape requires an array of dimensions as the argument";
+  if (info.Length() != 1 || !info[0].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  Napi::Array dim_array = info[0].As<Napi::Array>();
+  std::vector<int64_t> dims;
+  for (size_t i = 0; i < dim_array.Length(); i++) {
+    Napi::Value e = dim_array[i];
+    if (!e.IsNumber()) {
+      Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+      return env.Null();
+    }
+    dims.push_back(e.As<Napi::Number>().Int64Value());
+  }
+
+  ASSIGN_OR_THROW(reshaped, value()->Reshape(absl::Span<const int64_t>(dims.data(), dims.size())));
+
+  return LiteralWrapper::Create(env, new xla::Literal(std::move(reshaped)));
+}
+
+Napi::Value LiteralWrapper::ToString(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  return Napi::String::New(env, value()->ToString().c_str());
 }
 
 // static
@@ -340,6 +423,8 @@ Napi::Value LiteralWrapper::CreateR0(const Napi::CallbackInfo &info) {
   return Create(env, literal);
 }
 
+namespace {
+
 std::vector<float> floatArrayFromArray(Napi::Env env, Napi::Array array) {
   std::vector<float> nums;
   for (size_t i = 0; i < array.Length(); i++) {
@@ -354,6 +439,8 @@ std::vector<float> floatArrayFromArray(Napi::Env env, Napi::Array array) {
   }
   return nums;
 }
+
+} // namespace
 
 Napi::Value LiteralWrapper::CreateR1(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
@@ -565,19 +652,67 @@ Napi::Value Parameter(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
-Napi::Value ConstantR0F32(const Napi::CallbackInfo &info) {
+Napi::Value ConstantR0(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsNumber()) {
-    Napi::Error::New(env, "ConstantR0 expects a builder and a number")
-        .ThrowAsJavaScriptException();
+  const char *msg =
+      "ConstantR0 expects a builder, a primtiive type and a number";
+  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsString() ||
+      !info[2].IsNumber()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
     return env.Null();
   }
 
   auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
   if (!builder)
     return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(
-      xla::ConstantR0<float>(builder, info[1].As<Napi::Number>()));
+
+  std::string ptype = info[1].As<Napi::String>().Utf8Value();
+
+  xla::XlaOp *op = nullptr;
+  if (ptype == "F32") {
+    op = new xla::XlaOp(
+        xla::ConstantR0<float>(builder, info[2].As<Napi::Number>()));
+  }
+
+  if (op == nullptr) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value ConstantR1(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg =
+      "ConstantR0 expects a builder, a primtiive type and a number";
+  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsString() ||
+      !info[2].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
+  if (!builder)
+    return env.Null();
+
+  std::string ptype = info[1].As<Napi::String>().Utf8Value();
+  Napi::Array array = info[2].As<Napi::Array>();
+
+  xla::XlaOp *op = nullptr;
+  if (ptype == "F32") {
+    std::vector<float> nums = floatArrayFromArray(env, array);
+    if (env.IsExceptionPending())
+      return env.Null();
+    op = new xla::XlaOp(xla::ConstantR1<float>(
+        builder, absl::Span<float>(nums.data(), nums.size())));
+  }
+
+  if (op == nullptr) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
   return XlaOpWrapper::Create(env, op);
 }
 
@@ -613,8 +748,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   LiteralWrapper::Init(env, exports);
   ShapeWrapper::Init(env, exports);
 
-  exports.Set(Napi::String::New(env, "constantR0f32"),
-              Napi::Function::New<ConstantR0F32>(env));
+  exports.Set(Napi::String::New(env, "constantR0"),
+              Napi::Function::New<ConstantR0>(env));
+  exports.Set(Napi::String::New(env, "constantR1"),
+              Napi::Function::New<ConstantR1>(env));
   exports.Set(Napi::String::New(env, "parameter"),
               Napi::Function::New<Parameter>(env));
   exports.Set(Napi::String::New(env, "add"), Napi::Function::New<Add>(env));

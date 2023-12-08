@@ -25,8 +25,13 @@ export class PjRtBuffer {
 
 export class Literal {
   getFirstElementF32(): number;
+  data(ptype: PrimitiveType): number[];
+  shape(): Shape;
+  reshape(dimensions: number[]): Literal;
+  toString(): string;
 
   static createR0(ptype: PrimitiveType, n: number): Literal;
+  static createR1(ptype: PrimitiveType, ns: number[]): Literal;
 }
 
 enum PrimitiveType {
@@ -39,6 +44,7 @@ export class Shape {
   static forArray(t: PrimitiveType, dimensions: number[]): Shape;
 }
 
-export function constantR0f32(builder: XlaBuilder, n: number): XlaOp;
+export function constantR0(builder: XlaBuilder, ptype: PrimitiveType, n: number): XlaOp;
+export function constantR1(builder: XlaBuilder, ptype: PrimitiveType, ns: number[]): XlaOp;
 export function parameter(builder: XlaBuilder, parameter_number: number, shape: Shape, name: string): XlaOp;
 export function add(lhs: XlaOp, rhs: XlaOp): XlaOp;
