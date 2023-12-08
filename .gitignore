@@ -1,4 +1,6 @@
 build
 xla_extension
 node_modules
+dist
+xla-addon/xla.node
 .vscode

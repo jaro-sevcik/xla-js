@@ -1,12 +1,12 @@
 {
-    "name": "napi-testing",
+    "name": "xla-js",
     "version": "1.0.0",
     "description": "",
     "main": "index.js",
     "scripts": {
-        "build": "node-gyp build",
-        "install": "node-gyp rebuild",
-        "start": "node ./index.js",
+        "build": "node-gyp build && node scripts/addon.js && tsc -b",
+        "install": "node-gyp rebuild && node scripts/addon.js && tsc -b",
+        "start": "node ./dist/index.js",
         "debug": "node-gyp build --debug -j1 CXXFLAGS=\"-Wno-deprecated -Wno-deprecated-declarations\"",
         "configure": "node-gyp configure",
         "configure:xcode": "node-gyp configure -- -f xcode",
@@ -14,13 +14,15 @@
         "cfg": "npm run configure && npm run configure:xcode && npm run configure:cmake",
         "clean": "node-gyp clean"
     },
-    "author": "Stefan-Gabriel Muscalu <stefan.gabriel.muscalu@gmail.com> (http://my.corneroftheinternet.rocks/)",
+    "author": "Jaroslav Sevcik (jarin.sevcik@gmail.com)",
     "license": "MIT",
     "dependencies": {
         "bindings": "^1.5.0",
         "node-addon-api": "^7.0"
     },
     "devDependencies": {
-        "clang-format": "^1.8.0"
+        "@types/node": "^20.10.4",
+        "clang-format": "^1.8.0",
+        "typescript": "^5.3.3"
     }
 }

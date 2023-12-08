@@ -4,7 +4,7 @@
       "target_name": "xla",
       'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",
-        ".",
+        "./cpp",
         "/usr/local/include",
         "/home/jarin/projects/xla-rs/xla_extension/include"
        ],
@@ -16,11 +16,11 @@
       'cflags!': [ '-fno-exceptions', "-fno-rtti", '-D_THREAD_SAFE' ],
       "cflags_cc!": [ "-fno-rtti", "-fno-exceptions" ],
        "libraries": [
-           "<!(node ./libs)"
+           "<!(node ./scripts/libs)"
       ],
       "sources": [
-        "xla_js.cc",
-        "xla_js.h"
+        "cpp/xla_js.cc",
+        "cpp/xla_js.h"
       ],
     }
   ]

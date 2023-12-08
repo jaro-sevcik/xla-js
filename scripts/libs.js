@@ -10,6 +10,7 @@ const paths = [];
 libPaths.forEach(libPath => {
     paths.push(`-L${libPath}`);
     paths.push(`-Wl,-rpath,'$$ORIGIN/../../xla_extension/lib'`);
+    paths.push(`-Wl,-rpath,'$$ORIGIN/../xla_extension/lib'`);
 });
 
 paths.push(...xlaLibList);

@@ -1,4 +1,4 @@
-const xla = require('bindings')('xla');
+import * as xla from '../xla-addon';
 
 const client = new xla.Client();
 const b = new xla.XlaBuilder("fn")
@@ -11,4 +11,3 @@ const buffer = r[0][0];
 const literal = buffer.toLiteralSync();
 
 console.log("Done", literal.getFirstElementF32());
-
