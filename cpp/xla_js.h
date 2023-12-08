@@ -27,12 +27,16 @@
 #include "xla/client/xla_builder.h"
 #include "xla/literal_util.h"
 #include "xla/pjrt/tfrt_cpu_pjrt_client.h"
+#include "xla/shape_util.h"
 
 class PjRtClient : public Napi::ObjectWrap<PjRtClient> {
 public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports);
   PjRtClient(const Napi::CallbackInfo &info);
   Napi::Value Compile(const Napi::CallbackInfo &info);
+  Napi::Value BufferFromHostLiteral(const Napi::CallbackInfo &info);
+
+  xla::PjRtClient *value() { return client_.get(); }
 
 private:
   std::unique_ptr<xla::PjRtClient> client_;
@@ -118,6 +122,42 @@ public:
       : ReferenceWrapper<LiteralWrapper, xla::Literal>(info) {}
 
   Napi::Value GetFirstElementF32(const Napi::CallbackInfo &info);
+  static Napi::Value CreateR0(const Napi::CallbackInfo &info);
+  static Napi::Value CreateR1(const Napi::CallbackInfo &info);
+};
+
+#define PRIMITIVE_TYPE_V(V)                                                    \
+  V(PRED)                                                                      \
+  V(S4)                                                                        \
+  V(S8)                                                                        \
+  V(S16)                                                                       \
+  V(S32)                                                                       \
+  V(S64)                                                                       \
+  V(U4)                                                                        \
+  V(U8)                                                                        \
+  V(U16)                                                                       \
+  V(U32)                                                                       \
+  V(U64)                                                                       \
+  V(F16)                                                                       \
+  V(F32)                                                                       \
+  V(BF16)                                                                      \
+  V(F64)                                                                       \
+  V(F8E5M2)                                                                    \
+  V(F8E4M3FN)                                                                  \
+  V(F8E4M3B11FNUZ)                                                             \
+  V(F8E5M2FNUZ)                                                                \
+  V(F8E4M3FNUZ)
+
+class ShapeWrapper : public ReferenceWrapper<ShapeWrapper, xla::Shape> {
+public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports);
+  ShapeWrapper(const Napi::CallbackInfo &info)
+      : ReferenceWrapper<ShapeWrapper, xla::Shape>(info) {}
+
+  Napi::Value Dimensions(const Napi::CallbackInfo &info);
+  Napi::Value PrimitiveType(const Napi::CallbackInfo &info);
+
+  static Napi::Value ForArray(const Napi::CallbackInfo &info);
 };
 
 #endif // XLA_JS_H_

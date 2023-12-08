@@ -34,20 +34,7 @@
   }                                                                            \
   auto name = std::move(temp.value());
 
-// We need:
-// - client
-// - builder
-// - literal
-// - shape
-// - buffer
-// - op
-// - executable
-// - loaded executable
-// - ?device
-
-// client: createClient.
-// builder: normal constructor.
-
+// PjRtClient
 Napi::Value PjRtClient::Compile(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   const char *msg = "Client.build expects executable and options as arguments";
@@ -68,6 +55,27 @@ Napi::Value PjRtClient::Compile(const Napi::CallbackInfo &info) {
   return PjRtLoadedExecutableWrapper::Create(env, le);
 }
 
+Napi::Value PjRtClient::BufferFromHostLiteral(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "bufferFromHostLiteral requires a literal argument";
+  if (info.Length() < 1 || !info[0].IsObject() || info.Length() > 2 ||
+      (info.Length() == 2 && !info[1].IsNumber())) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  size_t device_id = 0;
+  if (info.Length() == 2) {
+    device_id = info[1].As<Napi::Number>().Uint32Value();
+  }
+
+  auto literal = LiteralWrapper::FromValue(env, info[0]);
+  auto device = value()->devices()[device_id];
+  ASSIGN_OR_THROW(buffer, value()->BufferFromHostLiteral(*literal, device));
+
+  return PjRtBufferWrapper::Create(env, buffer.release());
+}
+
 PjRtClient::PjRtClient(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<PjRtClient>(info) {
   Napi::Env env = info.Env();
@@ -83,12 +91,17 @@ Napi::Object PjRtClient::Init(Napi::Env env, Napi::Object exports) {
                       InstanceMethod("compile", &PjRtClient::Compile,
                                      static_cast<napi_property_attributes>(
                                          napi_writable | napi_configurable)),
+                      InstanceMethod("bufferFromHostLiteral",
+                                     &PjRtClient::BufferFromHostLiteral,
+                                     static_cast<napi_property_attributes>(
+                                         napi_writable | napi_configurable)),
                   });
 
   exports.Set("Client", func);
   return exports;
 }
 
+// ReferenceWrapper
 template <class T, typename TPtr>
 Napi::FunctionReference ReferenceWrapper<T, TPtr>::constructor = {};
 
@@ -204,9 +217,36 @@ Napi::Object PjRtLoadedExecutableWrapper::Init(Napi::Env env,
 Napi::Value
 PjRtLoadedExecutableWrapper::Execute(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
+  const char *msg =
+      "PjRtLoadedExecutableWrapper.execute expects "
+      "array of arrays of buffers executable and options as arguments";
+
+  if (info.Length() != 2 || !info[0].IsArray() || !info[1].IsObject()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::vector<std::vector<xla::PjRtBuffer *>> exec_inputs;
+
+  auto inputs_arg = info[0].As<Napi::Array>();
+
+  for (size_t i = 0; i < inputs_arg.Length(); i++) {
+    Napi::Value input_list_val = inputs_arg[i];
+    if (!input_list_val.IsArray()) {
+      Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+      return env.Null();
+    }
+    auto input_list = input_list_val.As<Napi::Array>();
+    std::vector<xla::PjRtBuffer *> inputs_exec_elem;
+    for (size_t j = 0; j < input_list.Length(); j++) {
+      auto buffer = PjRtBufferWrapper::FromValue(env, input_list[j]);
+      inputs_exec_elem.push_back(buffer);
+    }
+    exec_inputs.push_back(std::move(inputs_exec_elem));
+  }
 
   // TODO thread through the inputs!
-  ASSIGN_OR_THROW(results, value()->Execute({{}}, {}));
+  ASSIGN_OR_THROW(results, value()->Execute(exec_inputs, {}));
 
   auto result_array = Napi::Array::New(env, results.size());
   for (size_t i = 0; i < results.size(); i++) {
@@ -258,7 +298,12 @@ Napi::Object LiteralWrapper::Init(Napi::Env env, Napi::Object exports) {
                          &LiteralWrapper::GetFirstElementF32,
                          static_cast<napi_property_attributes>(
                              napi_writable | napi_configurable)),
-
+          StaticMethod("createR0", &LiteralWrapper::CreateR0,
+                       static_cast<napi_property_attributes>(
+                           napi_writable | napi_configurable)),
+          StaticMethod("createR1", &LiteralWrapper::CreateR1,
+                       static_cast<napi_property_attributes>(
+                           napi_writable | napi_configurable)),
       });
 }
 
@@ -266,6 +311,183 @@ Napi::Value LiteralWrapper::GetFirstElementF32(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   float result = value()->GetFirstElement<float>();
   return Napi::Number::New(env, result);
+}
+
+// static
+Napi::Value LiteralWrapper::CreateR0(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsNumber()) {
+    Napi::Error::New(
+        env,
+        "createR0 requires a primitive type and a number constant as arguments")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string ptype = info[0].As<Napi::String>().Utf8Value();
+
+  xla::Literal *literal = nullptr;
+  if (ptype == "F32") {
+    literal = new xla::Literal(
+        xla::LiteralUtil::CreateR0<float>(info[1].As<Napi::Number>()));
+  }
+
+  if (!literal) {
+    Napi::Error::New(env, "createR0: unsupported primitive type")
+        .ThrowAsJavaScriptException();
+  }
+
+  return Create(env, literal);
+}
+
+std::vector<float> floatArrayFromArray(Napi::Env env, Napi::Array array) {
+  std::vector<float> nums;
+  for (size_t i = 0; i < array.Length(); i++) {
+    Napi::Value e = array[i];
+    if (!e.IsNumber()) {
+      Napi::Error::New(
+          env, "createR1 requires an array of numbers as the second argument")
+          .ThrowAsJavaScriptException();
+      return {};
+    }
+    nums.push_back(e.As<Napi::Number>().FloatValue());
+  }
+  return nums;
+}
+
+Napi::Value LiteralWrapper::CreateR1(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsArray()) {
+    Napi::Error::New(env, "createR1 requires a primitive type and an array of "
+                          "numbers as arguments")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string ptype = info[0].As<Napi::String>().Utf8Value();
+  auto array = info[1].As<Napi::Array>();
+
+  xla::Literal *literal = nullptr;
+  if (ptype == "F32") {
+    std::vector<float> nums = floatArrayFromArray(env, array);
+    if (env.IsExceptionPending())
+      return env.Null();
+    literal = new xla::Literal(xla::LiteralUtil::CreateR1<float>(
+        absl::Span<const float>(nums.data(), nums.size())));
+  }
+
+  if (!literal) {
+    Napi::Error::New(env, "createR1: unsupported primitive type")
+        .ThrowAsJavaScriptException();
+  }
+
+  return Create(env, literal);
+}
+
+// Shape wrapper
+template <>
+napi_type_tag ReferenceWrapper<ShapeWrapper, xla::Shape>::type_tag_ = {
+    0xdf6e6fbb6c724f60ULL, 0x842a52de6b318696ULL};
+
+Napi::Object ShapeWrapper::Init(Napi::Env env, Napi::Object exports) {
+  return ReferenceWrapper<ShapeWrapper, xla::Shape>::Init(
+      env, exports, "Shape",
+      {
+          InstanceMethod("dimensions", &ShapeWrapper::Dimensions,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+          InstanceMethod("primitiveType", &ShapeWrapper::PrimitiveType,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
+          StaticMethod("forArray", &ShapeWrapper::ForArray,
+                       static_cast<napi_property_attributes>(
+                           napi_writable | napi_configurable)),
+
+      });
+}
+
+Napi::Value ShapeWrapper::Dimensions(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (!value()->IsArray()) {
+    return Napi::Array::New(env, 0);
+  }
+
+  int dims = value()->dimensions_size();
+  auto result = Napi::Array::New(env, value()->dimensions_size());
+  for (int i = 0; i < dims; i++) {
+    result[i] = value()->dimensions(i);
+  }
+  return result;
+}
+
+Napi::Value ShapeWrapper::PrimitiveType(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  const char *p = nullptr;
+  switch (value()->element_type()) {
+#define PRIMITIVE_TYPE_CASE(P)                                                 \
+  case xla::P:                                                                 \
+    p = #P;                                                                    \
+    break;
+    PRIMITIVE_TYPE_V(PRIMITIVE_TYPE_CASE)
+#undef PRIMITIVE_TYPE_CASE
+  default:
+    break;
+  }
+
+  if (p) {
+    return Napi::String::New(env, p);
+  }
+
+  return env.Null();
+}
+
+// static
+Napi::Value ShapeWrapper::ForArray(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Shape.forArray expects a primitive type and "
+                    "an array of dimension sizes";
+
+  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto p = info[0].As<Napi::String>().Utf8Value();
+  xla::PrimitiveType primitive_type = xla::PRIMITIVE_TYPE_INVALID;
+#define PRIMITIVE_TYPE_CASE(P)                                                 \
+  if (p == #P)                                                                 \
+    primitive_type = xla::P;
+  PRIMITIVE_TYPE_V(PRIMITIVE_TYPE_CASE)
+#undef PRIMITIVE_TYPE_CASE
+
+  if (primitive_type == xla::PRIMITIVE_TYPE_INVALID) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto dim_args = info[1].As<Napi::Array>();
+  std::vector<int64_t> dims;
+  std::vector<bool> dynamic_dims;
+  for (size_t i = 0; i < dim_args.Length(); i++) {
+    Napi::Value dim_arg = dim_args[i];
+    if (!dim_arg.IsNumber()) {
+      Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+      return env.Null();
+    }
+    int d = dim_arg.As<Napi::Number>().Int32Value();
+    if (env.IsExceptionPending())
+      return env.Null();
+    dynamic_dims.push_back(d < 0);
+    if (d < 0)
+      d = -d;
+    dims.push_back(d);
+  }
+
+  auto shape = new xla::Shape(std::move(xla::ShapeUtil::MakeShape(
+      primitive_type, absl::Span<const int64_t>(dims.data(), dims.size()),
+      dynamic_dims)));
+  return ShapeWrapper::Create(env, shape);
 }
 
 // XlaBuilder wrapper
@@ -312,10 +534,35 @@ Napi::Value XlaBuilderWrapper::Build(const Napi::CallbackInfo &info) {
   if (env.IsExceptionPending())
     return env.Null();
 
-  ASSIGN_OR_THROW(computation_instance, this->value()->Build(op));
+  ASSIGN_OR_THROW(computation_instance, this->value()->Build(*op));
 
   return XlaComputationWrapper::Create(
       env, new xla::XlaComputation(std::move(computation_instance)));
+}
+
+namespace {
+
+Napi::Value Parameter(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Parameter function expects a parameter number, a shape "
+                    "and a name as its arguments.";
+  if (info.Length() != 4 || !info[0].IsObject() || !info[1].IsNumber() ||
+      !info[2].IsObject() || !info[3].IsString()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
+  if (!builder)
+    return env.Null();
+
+  int32_t parameter_number = info[1].As<Napi::Number>().Int64Value();
+  xla::Shape *shape = ShapeWrapper::FromValue(env, info[2]);
+  std::string name = info[3].As<Napi::String>().Utf8Value();
+
+  xla::XlaOp *op =
+      new xla::XlaOp(xla::Parameter(builder, parameter_number, *shape, name));
+  return XlaOpWrapper::Create(env, op);
 }
 
 Napi::Value ConstantR0F32(const Napi::CallbackInfo &info) {
@@ -334,10 +581,28 @@ Napi::Value ConstantR0F32(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+Napi::Value Add(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Add function requires two XlaOp arguments";
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto lhs = XlaOpWrapper::FromValue(env, info[0]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  auto rhs = XlaOpWrapper::FromValue(env, info[1]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  xla::XlaOp *op = new xla::XlaOp(xla::Add(*lhs, *rhs));
+  return XlaOpWrapper::Create(env, op);
+}
+
+} // namespace
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   Napi::HandleScope scope(env);
-
-  // example();
 
   PjRtClient::Init(env, exports);
   XlaBuilderWrapper::Init(env, exports);
@@ -346,9 +611,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   PjRtLoadedExecutableWrapper::Init(env, exports);
   PjRtBufferWrapper::Init(env, exports);
   LiteralWrapper::Init(env, exports);
+  ShapeWrapper::Init(env, exports);
 
   exports.Set(Napi::String::New(env, "constantR0f32"),
               Napi::Function::New<ConstantR0F32>(env));
+  exports.Set(Napi::String::New(env, "parameter"),
+              Napi::Function::New<Parameter>(env));
+  exports.Set(Napi::String::New(env, "add"), Napi::Function::New<Add>(env));
 
   printf("Hello!?\n");
   return exports;
