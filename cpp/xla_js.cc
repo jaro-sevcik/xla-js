@@ -440,6 +440,21 @@ std::vector<float> floatArrayFromArray(Napi::Env env, Napi::Array array) {
   return nums;
 }
 
+std::vector<int64_t> int64ArrayFromNapiArray(Napi::Env env, Napi::Array array) {
+  std::vector<int64_t> dims;
+  if (env.IsExceptionPending()) return {};
+  for (size_t i = 0; i < array.Length(); i++) {
+    Napi::Value e = array[i];
+    if (!e.IsNumber()) {
+      Napi::Error::New(env, "Number elements expected").ThrowAsJavaScriptException();
+      return {};
+    }
+    dims.push_back(e.As<Napi::Number>().Int64Value());
+    if (env.IsExceptionPending()) return {};
+  }
+  return dims;
+}
+
 } // namespace
 
 Napi::Value LiteralWrapper::CreateR1(const Napi::CallbackInfo &info) {
@@ -734,6 +749,39 @@ Napi::Value Add(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "DotGeneral function requires two XlaOp arguments, two lists of contracting dimensions and two lists of batch dimensions";
+  if (info.Length() != 6 || !info[0].IsObject() || !info[1].IsObject() || !info[2].IsArray() || !info[3].IsArray() || !info[4].IsArray() || !info[5].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto lhs = XlaOpWrapper::FromValue(env, info[0]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  auto rhs = XlaOpWrapper::FromValue(env, info[1]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  std::vector<int64_t> lhs_contracting_dims = int64ArrayFromNapiArray(env, info[2].As<Napi::Array>());
+  std::vector<int64_t> rhs_contracting_dims = int64ArrayFromNapiArray(env, info[3].As<Napi::Array>());
+  std::vector<int64_t> lhs_batch_dims = int64ArrayFromNapiArray(env, info[4].As<Napi::Array>());
+  std::vector<int64_t> rhs_batch_dims = int64ArrayFromNapiArray(env, info[5].As<Napi::Array>());
+
+  xla::DotDimensionNumbers dnums;
+  for (int64_t i: lhs_contracting_dims)
+    dnums.add_lhs_contracting_dimensions(i);
+  for (int64_t i: rhs_contracting_dims)
+    dnums.add_rhs_contracting_dimensions(i);
+  for (int64_t i: lhs_batch_dims)
+    dnums.add_lhs_batch_dimensions(i);
+  for (int64_t i: rhs_batch_dims)
+    dnums.add_rhs_batch_dimensions(i);
+
+  xla::XlaOp *op = new xla::XlaOp(xla::DotGeneral(*lhs, *rhs, dnums));
+  return XlaOpWrapper::Create(env, op);
+}
+
 } // namespace
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -755,8 +803,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set(Napi::String::New(env, "parameter"),
               Napi::Function::New<Parameter>(env));
   exports.Set(Napi::String::New(env, "add"), Napi::Function::New<Add>(env));
+  exports.Set(Napi::String::New(env, "dotGeneral"), Napi::Function::New<DotGeneral>(env));
 
-  printf("Hello!?\n");
   return exports;
 }
 

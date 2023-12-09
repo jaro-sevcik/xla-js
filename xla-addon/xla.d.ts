@@ -48,3 +48,5 @@ export function constantR0(builder: XlaBuilder, ptype: PrimitiveType, n: number)
 export function constantR1(builder: XlaBuilder, ptype: PrimitiveType, ns: number[]): XlaOp;
 export function parameter(builder: XlaBuilder, parameter_number: number, shape: Shape, name: string): XlaOp;
 export function add(lhs: XlaOp, rhs: XlaOp): XlaOp;
+export function dotGeneral(lhs: XlaOp, rhs: XlaOp, lhs_contracting_dimensions: number[], rhs_contracting_dimensions: number[],
+    lhs_batch_dimensions: number[], rhs_batch_dimensions: number[]): XlaOp;

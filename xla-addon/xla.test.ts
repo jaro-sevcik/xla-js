@@ -72,4 +72,28 @@ describe('XLA client', () => {
     expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([8, 10, 12, 14, 16, 18]);
     expect(result_literal.shape().dimensions()).toStrictEqual([3, 2]);
   });
+
+  test('can multiply matrices', () => {
+    const builder = new xla.XlaBuilder("fn");
+    const matrix2x3_shape = xla.Shape.forArray(xla.PrimitiveType.F32, [2, 3]);
+    const matrix3x2_shape = xla.Shape.forArray(xla.PrimitiveType.F32, [3, 2]);
+    const parameter1 = xla.parameter(builder, 0, matrix2x3_shape, "x");
+    const parameter2 = xla.parameter(builder, 1, matrix3x2_shape, "y");
+    const computation = builder.build(xla.dotGeneral(parameter1, parameter2, [1], [0], [], []));
+
+    // Compile the computation.
+    const loaded_executable = client.compile(computation, {});
+
+    // Execute the computation.
+    const argument1_literal = xla.Literal.createR1(xla.PrimitiveType.F32, [1, 2, 3, 4, 5, 6]).reshape([2, 3]);
+    const argument2_literal = xla.Literal.createR1(xla.PrimitiveType.F32, [7, 8, 9, 10, 11, 12]).reshape([3, 2]);
+    const results = loaded_executable.execute([[client.bufferFromHostLiteral(argument1_literal), client.bufferFromHostLiteral(argument2_literal)]], {});
+
+    // Extract the resulting scalar.
+    const result_buffer = results[0][0];
+    const result_literal = result_buffer.toLiteralSync();
+
+    expect(result_literal.shape().dimensions()).toStrictEqual([2, 2]);
+    expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([58, 64, 139, 154]);
+  });
 });
