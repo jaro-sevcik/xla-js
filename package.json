@@ -12,7 +12,8 @@
         "configure:xcode": "node-gyp configure -- -f xcode",
         "configure:cmake": "node-gyp configure -- -f cmake",
         "cfg": "npm run configure && npm run configure:xcode && npm run configure:cmake",
-        "clean": "node-gyp clean"
+        "clean": "node-gyp clean",
+        "test": "jest"
     },
     "author": "Jaroslav Sevcik (jarin.sevcik@gmail.com)",
     "license": "MIT",
