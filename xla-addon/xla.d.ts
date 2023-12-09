@@ -34,7 +34,7 @@ export class Literal {
   static createR1(ptype: PrimitiveType, ns: number[]): Literal;
 }
 
-enum PrimitiveType {
+export enum PrimitiveType {
   F32 = "F32",
 }
 
