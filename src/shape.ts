@@ -1,6 +1,6 @@
-export enum PrimitiveType {
-  F32 = "F32",
-}
+import * as xla from "../xla-addon";
+
+export type PrimitiveType = xla.PrimitiveType;
 
 export class Shape {
   #dimensions: number[];
@@ -15,6 +15,17 @@ export class Shape {
     return this.#dimensions.reduce((s, d) => s*d, 1);
   }
 
+  element_type(): PrimitiveType {
+    return this.#type;
+  }
+
+  dimensions(): number[] {
+    return this.#dimensions;
+  }
+
+  toXlaShape(): xla.Shape {
+    return xla.Shape.forArray(this.#type, this.#dimensions);
+  }
 
   static matmul(lhs: Shape, rhs: Shape): Shape {
     console.assert(lhs.#dimensions.length === rhs.#dimensions.length);

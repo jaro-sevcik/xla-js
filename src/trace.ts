@@ -1,42 +1,42 @@
 import { Shape } from "./shape";
 import { Tensor } from "./tensor";
 
-type Mul = {
+export type Mul = {
   primitive: "mul";
 };
 
-type Add = {
+export type Add = {
   primitive: "add";
 };
 
-type MatMul = {
+export type MatMul = {
   primitive: "matmul";
 };
 
-type Transpose = {
+export type Transpose = {
   primitive: "transpose";
 };
 
-type Reshape = {
+export type Reshape = {
   primitive: "reshape";
   shape: Shape;
 };
 
-type Broadcast = {
+export type Broadcast = {
   primitive: "broadcast";
   shape: Shape;
 };
 
-type Constant = {
+export type Constant = {
   primitive: "constant";
   value: Tensor;
 };
 
-type Block = {
+export type Block = {
   primitive: "block";
 };
 
-type Primitive =
+export type Primitive =
   | Mul
   | Add
   | MatMul
@@ -83,7 +83,7 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
   assertNever(this);
 }
 
-abstract class Trace<T> {
+export abstract class Trace<T> {
   abstract primitive(p: Primitive, inputs: T[]): T[];
 
   mul(lhs: T, rhs: T): T {
@@ -108,15 +108,26 @@ abstract class Trace<T> {
     return this.primitive(
       {
         primitive: "constant",
-        value
+        value,
       } satisfies Constant,
       [],
     )[0];
   }
 }
 
-function myfn<T>(trace: Trace<T>, x: T) {
-  const exprX2 = trace.mul(x, x);
-  const expr4X = trace.mul(trace.constant(Tensor.constantR0(4)), x);
-  return trace.add(exprX2, trace.add(expr4X, trace.constant(Tensor.constantR0(6))));
+export class EvalTrace extends Trace<Tensor> {
+  primitive(p: Primitive, inputs: Tensor[]): Tensor[] {
+    switch (p.primitive) {
+      case "constant":
+        return [p.value];
+      case "add":
+        console.assert(inputs.length === 2);
+        return [Tensor.add(inputs[0], inputs[1])];
+      case "mul":
+        console.assert(inputs.length === 2);
+        return [Tensor.mul(inputs[0], inputs[1])];
+    }
+
+    throw new Error(`Unsupported primitive ${p}`);
+  }
 }

@@ -731,6 +731,26 @@ Napi::Value ConstantR1(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+Napi::Value ConstantLiteral(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg =
+      "ConstantLiteral expects a builder and a literal";
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
+  if (!builder)
+    return env.Null();
+
+  auto literal = LiteralWrapper::FromValue(env, info[1]);
+
+  auto op = new xla::XlaOp(xla::ConstantLiteral(builder, *literal));
+
+  return XlaOpWrapper::Create(env, op);
+}
+
 Napi::Value Add(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   const char *msg = "Add function requires two XlaOp arguments";
@@ -746,6 +766,24 @@ Napi::Value Add(const Napi::CallbackInfo &info) {
   if (env.IsExceptionPending())
     return env.Null();
   xla::XlaOp *op = new xla::XlaOp(xla::Add(*lhs, *rhs));
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value Mul(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Mul function requires two XlaOp arguments";
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto lhs = XlaOpWrapper::FromValue(env, info[0]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  auto rhs = XlaOpWrapper::FromValue(env, info[1]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  xla::XlaOp *op = new xla::XlaOp(xla::Mul(*lhs, *rhs));
   return XlaOpWrapper::Create(env, op);
 }
 
@@ -851,9 +889,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New<ConstantR0>(env));
   exports.Set(Napi::String::New(env, "constantR1"),
               Napi::Function::New<ConstantR1>(env));
+  exports.Set(Napi::String::New(env, "constantLiteral"),
+              Napi::Function::New<ConstantLiteral>(env));
   exports.Set(Napi::String::New(env, "parameter"),
               Napi::Function::New<Parameter>(env));
   exports.Set(Napi::String::New(env, "add"), Napi::Function::New<Add>(env));
+  exports.Set(Napi::String::New(env, "mul"), Napi::Function::New<Mul>(env));
   exports.Set(Napi::String::New(env, "dotGeneral"), Napi::Function::New<DotGeneral>(env));
   exports.Set(Napi::String::New(env, "broadcast"), Napi::Function::New<Broadcast>(env));
   exports.Set(Napi::String::New(env, "transpose"), Napi::Function::New<Transpose>(env));
