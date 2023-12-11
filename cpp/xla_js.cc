@@ -782,6 +782,57 @@ Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+Napi::Value Broadcast(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Broadcast function requires a XlaOp arguments and a list of dimension sizes";
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto input = XlaOpWrapper::FromValue(env, info[0]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  std::vector<int64_t> dims = int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
+
+  xla::XlaOp *op = new xla::XlaOp(xla::Broadcast(*input, absl::Span<const int64_t>(dims.data(), dims.size())));
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value Transpose(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Transpose function requires a XlaOp arguments and a permutation list";
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto input = XlaOpWrapper::FromValue(env, info[0]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  std::vector<int64_t> dims = int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
+
+  xla::XlaOp *op = new xla::XlaOp(xla::Transpose(*input, absl::Span<const int64_t>(dims.data(), dims.size())));
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value Reshape(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg = "Reshape function requires a XlaOp arguments and a list of new sizes";
+  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto input = XlaOpWrapper::FromValue(env, info[0]);
+  if (env.IsExceptionPending())
+    return env.Null();
+  std::vector<int64_t> dims = int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
+
+  xla::XlaOp *op = new xla::XlaOp(xla::Reshape(*input, absl::Span<const int64_t>(dims.data(), dims.size())));
+  return XlaOpWrapper::Create(env, op);
+}
+
 } // namespace
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -804,6 +855,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New<Parameter>(env));
   exports.Set(Napi::String::New(env, "add"), Napi::Function::New<Add>(env));
   exports.Set(Napi::String::New(env, "dotGeneral"), Napi::Function::New<DotGeneral>(env));
+  exports.Set(Napi::String::New(env, "broadcast"), Napi::Function::New<Broadcast>(env));
+  exports.Set(Napi::String::New(env, "transpose"), Napi::Function::New<Transpose>(env));
+  exports.Set(Napi::String::New(env, "reshape"), Napi::Function::New<Reshape>(env));
 
   return exports;
 }
