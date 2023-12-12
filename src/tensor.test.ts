@@ -1,4 +1,4 @@
-import { Tensor } from './tensor';
+import { Tensor } from "./tensor";
 
 describe("Tensor", () => {
   test("can add scalars", () => {
@@ -15,5 +15,9 @@ describe("Tensor", () => {
     const rhs = Tensor.constantR0(3);
     const res = Tensor.mul(lhs, rhs).data()[0];
     expect(res).toBe(6);
+  });
+
+  test("stringifies correctly", () => {
+    expect(Tensor.constantR0(3).toString()).toBe('f32[] 3');
   });
 });

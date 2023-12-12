@@ -14,10 +14,16 @@ export class Tensor {
     this.#shape = shape;
   }
 
-  shape(): Shape { return this.#shape; }
+  shape(): Shape {
+    return this.#shape;
+  }
 
   data(): number[] {
     return this.#ensureLiteral().data(this.#shape.element_type());
+  }
+
+  toString(): string {
+    return this.#ensureLiteral().toString();
   }
 
   #ensureBuffer(): xla.PjRtBuffer {
@@ -69,8 +75,10 @@ export class Tensor {
     const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
     const computation = builder.build(xla.add(lhs_node, rhs_node));
     const executable = xlaClient.compile(computation, {});
-    const results = executable.execute([[lhs.#ensureBuffer(), rhs.#ensureBuffer()]], {});
-
+    const results = executable.execute(
+      [[lhs.#ensureBuffer(), rhs.#ensureBuffer()]],
+      {},
+    );
 
     return new Tensor(lhs.shape(), results[0][0]);
   }
@@ -83,7 +91,10 @@ export class Tensor {
     const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
     const computation = builder.build(xla.mul(lhs_node, rhs_node));
     const executable = xlaClient.compile(computation, {});
-    const results = executable.execute([[lhs.#ensureBuffer(), rhs.#ensureBuffer()]], {});
+    const results = executable.execute(
+      [[lhs.#ensureBuffer(), rhs.#ensureBuffer()]],
+      {},
+    );
 
     return new Tensor(lhs.shape(), results[0][0]);
   }
