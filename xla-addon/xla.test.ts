@@ -97,3 +97,12 @@ describe('XLA client', () => {
     expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([58, 64, 139, 154]);
   });
 });
+
+describe('XLA literal', () => {
+  test('can broadcast scalar to vector', () => {
+    const shape = xla.Shape.forArray(xla.PrimitiveType.F32, [3]);
+    const lit = xla.Literal.createR0(xla.PrimitiveType.F32, 1.0).broadcast(shape, []);
+    expect(lit.data(xla.PrimitiveType.F32)).toStrictEqual([1, 1, 1]);
+  });
+});
+

@@ -28,6 +28,7 @@ export class Literal {
   data(ptype: PrimitiveType): number[];
   shape(): Shape;
   reshape(dimensions: number[]): Literal;
+  broadcast(shape: Shape, dimensions: number[]): Literal;
   toString(): string;
 
   static createR0(ptype: PrimitiveType, n: number): Literal;

@@ -46,6 +46,16 @@ export class Tensor {
     return this.#shape.toXlaShape();
   }
 
+  static zeros(shape: Shape): Tensor {
+    return Tensor.broadcastConstant(0, shape);
+  }
+
+  static broadcastConstant(constant: number, shape: Shape): Tensor {
+    const l = xla.Literal.createR0(xla.PrimitiveType.F32, constant);
+    const b = l.broadcast(shape.toXlaShape(), []);
+    return new Tensor(shape, undefined, b);
+  }
+
   static constantR0(v: number): Tensor {
     const l = xla.Literal.createR0(xla.PrimitiveType.F32, v);
     return new Tensor(new Shape(xla.PrimitiveType.F32, []), undefined, l);

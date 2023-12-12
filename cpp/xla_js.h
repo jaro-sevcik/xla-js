@@ -125,6 +125,7 @@ public:
   Napi::Value Data(const Napi::CallbackInfo &info);
   Napi::Value Shape(const Napi::CallbackInfo &info);
   Napi::Value Reshape(const Napi::CallbackInfo &info);
+  Napi::Value Broadcast(const Napi::CallbackInfo &info);
   Napi::Value ToString(const Napi::CallbackInfo &info);
 
   static Napi::Value CreateR0(const Napi::CallbackInfo &info);
