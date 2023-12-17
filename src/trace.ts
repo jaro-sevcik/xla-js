@@ -70,7 +70,7 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       return [Shape.matmul(input_shapes[0], input_shapes[1])];
     case "transpose":
       console.assert(input_shapes.length === 1);
-      return [Shape.transpose(input_shapes[0])];
+      return [input_shapes[0].transpose()];
     case "block":
       // TODO
       return [];

@@ -52,4 +52,7 @@ export function add(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function mul(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function dotGeneral(lhs: XlaOp, rhs: XlaOp, lhs_contracting_dimensions: number[], rhs_contracting_dimensions: number[],
     lhs_batch_dimensions: number[], rhs_batch_dimensions: number[]): XlaOp;
+export function broadcast(input: XlaOp, dims: number[]): XlaOp;
+export function transpose(input: XlaOp, permutation: number[]): XlaOp;
+
 export function constantLiteral(builder: XlaBuilder, literal: Literal): XlaOp;

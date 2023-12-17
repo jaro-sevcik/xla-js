@@ -26,6 +26,27 @@ export class Tensor {
     return this.#ensureLiteral().toString();
   }
 
+  transpose(permutation?: number[]): Tensor {
+    const dims = this.shape().dimensions().length;
+    if (dims < 2) {
+      throw new Error("Can only transpose > 2 dimensions");
+    }
+    if (!permutation) {
+      permutation = [];
+      for (let i = 0; i < dims - 2; i++) permutation.push(i);
+      permutation.push(dims - 1, dims - 2);
+    }
+    const builder = new xla.XlaBuilder("add");
+    const node = xla.parameter(builder, 0, this.#xlaShape(), "lhs");
+    const computation = builder.build(xla.transpose(node, permutation));
+    const executable = xlaClient.compile(computation, {});
+    const results = executable.execute(
+      [[this.#ensureBuffer()]],
+      {},
+    );
+    return new Tensor(this.shape().transpose(), results[0][0]);
+  }
+
   #ensureBuffer(): xla.PjRtBuffer {
     if (!this.#buffer) {
       if (!this.#literal) {

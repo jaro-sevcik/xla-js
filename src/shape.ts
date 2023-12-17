@@ -12,7 +12,7 @@ export class Shape {
   }
 
   total_size(): number {
-    return this.#dimensions.reduce((s, d) => s*d, 1);
+    return this.#dimensions.reduce((s, d) => s * d, 1);
   }
 
   element_type(): PrimitiveType {
@@ -39,15 +39,15 @@ export class Shape {
     return new Shape(lhs.#type, dimensions);
   }
 
-  static transpose(input: Shape): Shape {
-    console.assert(input.#dimensions.length >= 2);
-    const dimensions = [...input.#dimensions].splice(
-      input.#dimensions.length - 2,
+  transpose(): Shape {
+    console.assert(this.#dimensions.length >= 2);
+    const dimensions = [...this.#dimensions].splice(
+      this.#dimensions.length - 2,
       2,
-      input.#dimensions[input.#dimensions.length - 1],
-      input.#dimensions[input.#dimensions.length - 2]
+      this.#dimensions[this.#dimensions.length - 1],
+      this.#dimensions[this.#dimensions.length - 2],
     );
-    return new Shape(input.#type, dimensions);
+    return new Shape(this.#type, dimensions);
   }
 
   static isEqual(lhs: Shape, rhs: Shape): boolean {

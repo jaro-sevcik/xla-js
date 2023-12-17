@@ -5,8 +5,8 @@
       'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",
         "./cpp",
-        "/usr/local/include",
-        "/home/jarin/projects/xla-rs/xla_extension/include"
+        "./xla_extension/include",
+        "/usr/local/include"
        ],
        'dependencies': ["<!(node -p \"require('node-addon-api').gyp\")"],
       "cflags" : [
