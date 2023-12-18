@@ -1,6 +1,6 @@
 import { Shape } from "./shape";
 import { Tensor } from "./tensor";
-import { strict as assert } from 'assert';
+import { strict as assert } from "assert";
 
 interface Shaped {
   shape(): Shape;
@@ -15,11 +15,11 @@ export type Add = {
 };
 
 export type DotGeneral = {
-  primitive: "dot_general";
-  batch_lhs: number[];
-  batch_rhs: number[];
+  primitive: "dotGeneral";
   contracting_lhs: number[];
   contracting_rhs: number[];
+  batch_lhs: number[];
+  batch_rhs: number[];
 };
 
 export type Transpose = {
@@ -29,12 +29,12 @@ export type Transpose = {
 
 export type Reshape = {
   primitive: "reshape";
-  shape: Shape;
+  new_sizes: number[];
 };
 
 export type Broadcast = {
   primitive: "broadcast";
-  shape: Shape;
+  new_sizes: number[];
 };
 
 export type Constant = {
@@ -70,9 +70,18 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       assert.strictEqual(input_shapes.length, 2);
       assert.ok(Shape.isEqual(input_shapes[0], input_shapes[1]));
       return [input_shapes[0]];
-    case "dot_general":
+    case "dotGeneral":
       assert.strictEqual(input_shapes.length, 2);
-      return [Shape.dotGeneral(input_shapes[0], input_shapes[1], this.batch_lhs, this.batch_rhs, this.contracting_lhs, this.contracting_rhs)];
+      return [
+        Shape.dotGeneral(
+          input_shapes[0],
+          input_shapes[1],
+          this.batch_lhs,
+          this.batch_rhs,
+          this.contracting_lhs,
+          this.contracting_rhs,
+        ),
+      ];
     case "transpose":
       assert.strictEqual(input_shapes.length, 1);
       return [input_shapes[0].transpose(this.permutation)];
@@ -81,12 +90,21 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       return [];
     case "reshape":
       assert.strictEqual(input_shapes.length, 1);
-      assert.strictEqual(input_shapes[0].total_size(), this.shape.total_size());
-      return [this.shape];
+      assert.strictEqual(
+        input_shapes[0].total_size(),
+        this.new_sizes.reduce((s, v) => s * v, 1),
+      );
+      return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
     case "broadcast":
       assert.strictEqual(input_shapes.length, 1);
-      assert.strictEqual(input_shapes[0].total_size(), this.shape.total_size());
-      return [this.shape];
+      assert.strictEqual(input_shapes[0].rank(), this.new_sizes);
+      for (let i = 0; i < this.new_sizes.length; i++) {
+        assert.ok(
+          input_shapes[0].dimensions()[i] === 1 ||
+            input_shapes[0].dimensions()[i] === this.new_sizes[i],
+        );
+      }
+      return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
     case "constant":
       return [this.value.shape()];
   }
@@ -114,13 +132,63 @@ export abstract class Trace<T> {
     )[0];
   }
 
-  constant(value: Tensor) {
+  constant(value: Tensor): T {
     return this.primitive(
       {
         primitive: "constant",
         value,
       } satisfies Constant,
       [],
+    )[0];
+  }
+
+  dotGeneral(
+    lhs: T,
+    rhs: T,
+    contracting_lhs: number[],
+    contracting_rhs: number[],
+    batch_lhs: number[],
+    batch_rhs: number[],
+  ): T {
+    return this.primitive(
+      {
+        primitive: "dotGeneral",
+        contracting_lhs,
+        contracting_rhs,
+        batch_lhs,
+        batch_rhs,
+      } satisfies DotGeneral,
+      [lhs, rhs],
+    )[0];
+  }
+
+  transpose(input: T, permutation: number[]): T {
+    return this.primitive(
+      {
+        primitive: "transpose",
+        permutation,
+      } satisfies Transpose,
+      [input],
+    )[0];
+  }
+
+  reshape(input: T, new_sizes: number[]): T {
+    return this.primitive(
+      {
+        primitive: "reshape",
+        new_sizes,
+      } satisfies Reshape,
+      [input],
+    )[0];
+  }
+
+  broadcast(input: T, new_sizes: number[]): T {
+    return this.primitive(
+      {
+        primitive: "broadcast",
+        new_sizes,
+      } satisfies Broadcast,
+      [input],
     )[0];
   }
 }
@@ -136,9 +204,31 @@ export class EvalTrace extends Trace<Tensor> {
       case "mul":
         assert.strictEqual(inputs.length, 2);
         return [Tensor.mul(inputs[0], inputs[1])];
+      case "dotGeneral":
+        assert.strictEqual(inputs.length, 2);
+        return [
+          Tensor.dotGeneral(
+            inputs[0],
+            inputs[1],
+            p.contracting_lhs,
+            p.contracting_rhs,
+            p.batch_lhs,
+            p.batch_rhs,
+          ),
+        ];
+      case "transpose":
+        assert.strictEqual(inputs.length, 1);
+        return [inputs[0].transpose(p.permutation)];
+      case "reshape":
+        assert.strictEqual(inputs.length, 1);
+        return [inputs[0].reshape(p.new_sizes)];
+      case "broadcast":
+        assert.strictEqual(inputs.length, 1);
+        return [inputs[0].broadcast(p.new_sizes)];
+      case "block":
+        throw new Error(`Block not implemented`);
     }
-
-    throw new Error(`Primitive ${p} not implemented`);
+    assertNever(p);
   }
 }
 

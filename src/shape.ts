@@ -24,6 +24,10 @@ export class Shape {
     return this.#dimensions;
   }
 
+  rank(): number {
+    return this.#dimensions.length;
+  }
+
   toXlaShape(): xla.Shape {
     return xla.Shape.forArray(this.#type, this.#dimensions);
   }
@@ -31,10 +35,10 @@ export class Shape {
   static dotGeneral(
     lhs: Shape,
     rhs: Shape,
-    batch_lhs: number[],
-    batch_rhs: number[],
     contracting_lhs: number[],
     contracting_rhs: number[],
+    batch_lhs: number[],
+    batch_rhs: number[],
   ): Shape {
     const lhs_dims = [...lhs.dimensions()];
     const rhs_dims = [...rhs.dimensions()];

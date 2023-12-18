@@ -55,5 +55,7 @@ export function dotGeneral(lhs: XlaOp, rhs: XlaOp, lhs_contracting_dimensions: n
     lhs_batch_dimensions: number[], rhs_batch_dimensions: number[]): XlaOp;
 export function broadcast(input: XlaOp, dims: number[]): XlaOp;
 export function transpose(input: XlaOp, permutation: number[]): XlaOp;
+export function reshape(input: XlaOp, new_sizes: number[]): XlaOp;
+export function iota(builder: XlaBuilder, shape: Shape, dimension: number): XlaOp;
 
 export function constantLiteral(builder: XlaBuilder, literal: Literal): XlaOp;

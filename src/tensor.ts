@@ -1,6 +1,6 @@
 import * as xla from "../xla-addon";
 import { Shape } from "./shape";
-import { strict as assert } from 'assert';
+import { strict as assert } from "assert";
 
 let xlaClient = new xla.Client();
 
@@ -37,15 +37,36 @@ export class Tensor {
       for (let i = 0; i < dims - 2; i++) permutation.push(i);
       permutation.push(dims - 1, dims - 2);
     }
-    const builder = new xla.XlaBuilder("add");
+    const builder = new xla.XlaBuilder("transpose");
     const node = xla.parameter(builder, 0, this.#xlaShape(), "lhs");
     const computation = builder.build(xla.transpose(node, permutation));
     const executable = xlaClient.compile(computation, {});
-    const results = executable.execute(
-      [[this.#ensureBuffer()]],
-      {},
-    );
+    const results = executable.execute([[this.#ensureBuffer()]], {});
     return new Tensor(this.shape().transpose(permutation), results[0][0]);
+  }
+
+  reshape(new_sizes: number[]): Tensor {
+    const builder = new xla.XlaBuilder("reshape");
+    const node = xla.parameter(builder, 0, this.#xlaShape(), "lhs");
+    const computation = builder.build(xla.reshape(node, new_sizes));
+    const executable = xlaClient.compile(computation, {});
+    const results = executable.execute([[this.#ensureBuffer()]], {});
+    return new Tensor(
+      new Shape(this.shape().element_type(), new_sizes),
+      results[0][0],
+    );
+  }
+
+  broadcast(new_sizes: number[]): Tensor {
+    const builder = new xla.XlaBuilder("reshape");
+    const node = xla.parameter(builder, 0, this.#xlaShape(), "lhs");
+    const computation = builder.build(xla.broadcast(node, new_sizes));
+    const executable = xlaClient.compile(computation, {});
+    const results = executable.execute([[this.#ensureBuffer()]], {});
+    return new Tensor(
+      new Shape(this.shape().element_type(), new_sizes),
+      results[0][0],
+    );
   }
 
   #ensureBuffer(): xla.PjRtBuffer {
@@ -119,5 +140,59 @@ export class Tensor {
     );
 
     return new Tensor(lhs.shape(), results[0][0]);
+  }
+
+  static dotGeneral(
+    lhs: Tensor,
+    rhs: Tensor,
+    contracting_lhs: number[],
+    contracting_rhs: number[],
+    batch_lhs: number[],
+    batch_rhs: number[],
+  ): Tensor {
+    const shape = Shape.dotGeneral(
+      lhs.shape(),
+      rhs.shape(),
+      contracting_lhs,
+      contracting_rhs,
+      batch_lhs,
+      batch_rhs,
+    );
+
+    const builder = new xla.XlaBuilder("dotGeneral");
+    const lhs_node = xla.parameter(builder, 0, lhs.#xlaShape(), "lhs");
+    const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
+    const computation = builder.build(
+      xla.dotGeneral(
+        lhs_node,
+        rhs_node,
+        contracting_lhs,
+        contracting_rhs,
+        batch_lhs,
+        batch_rhs,
+      ),
+    );
+    const executable = xlaClient.compile(computation, {});
+    const results = executable.execute(
+      [[lhs.#ensureBuffer(), rhs.#ensureBuffer()]],
+      {},
+    );
+
+    return new Tensor(shape, results[0][0]);
+  }
+
+  static matmul(lhs: Tensor, rhs: Tensor) {
+    const dims = lhs.shape().rank();
+    const batch = new Array(dims).fill(0).map((e, i) => i);
+    return Tensor.dotGeneral(lhs, rhs, [dims - 1], [dims - 2], batch, batch);
+  }
+
+  static arange(shape: Shape, dimension: number) {
+    const builder = new xla.XlaBuilder("iota");
+    const computation = builder.build(xla.iota(builder, shape, dimension));
+    const executable = xlaClient.compile(computation, {});
+    const results = executable.execute([[]], {});
+
+    return new Tensor(shape, results[0][0]);
   }
 }

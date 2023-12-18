@@ -962,7 +962,8 @@ Napi::Value Iota(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   const char *msg =
       "iota function requires an XlaBuilder argument, a shape and a dimension";
-  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsObject() || !info[2].IsNumber()) {
+  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsObject() ||
+      !info[2].IsNumber()) {
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
     return env.Null();
   }
@@ -973,8 +974,7 @@ Napi::Value Iota(const Napi::CallbackInfo &info) {
   if (env.IsExceptionPending())
     return env.Null();
 
-  xla::XlaOp *op = new xla::XlaOp(xla::Iota(
-      builder, *shape, index));
+  xla::XlaOp *op = new xla::XlaOp(xla::Iota(builder, *shape, index));
   return XlaOpWrapper::Create(env, op);
 }
 
@@ -1010,8 +1010,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New<Transpose>(env));
   exports.Set(Napi::String::New(env, "reshape"),
               Napi::Function::New<Reshape>(env));
-  exports.Set(Napi::String::New(env, "iota"),
-              Napi::Function::New<Iota>(env));
+  exports.Set(Napi::String::New(env, "iota"), Napi::Function::New<Iota>(env));
 
   return exports;
 }
