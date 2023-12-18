@@ -1,6 +1,6 @@
-import { assert } from "console";
 import { Shape } from "./shape";
 import { Tensor } from "./tensor";
+import { strict as assert } from 'assert';
 
 interface Shaped {
   shape(): Shape;
@@ -14,12 +14,17 @@ export type Add = {
   primitive: "add";
 };
 
-export type MatMul = {
-  primitive: "matmul";
+export type DotGeneral = {
+  primitive: "dot_general";
+  batch_lhs: number[];
+  batch_rhs: number[];
+  contracting_lhs: number[];
+  contracting_rhs: number[];
 };
 
 export type Transpose = {
   primitive: "transpose";
+  permutation: number[];
 };
 
 export type Reshape = {
@@ -44,7 +49,7 @@ export type Block = {
 export type Primitive =
   | Mul
   | Add
-  | MatMul
+  | DotGeneral
   | Transpose
   | Reshape
   | Broadcast
@@ -58,29 +63,29 @@ function assertNever(x: never): never {
 export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
   switch (this.primitive) {
     case "add":
-      console.assert(input_shapes.length === 2);
-      console.assert(Shape.isEqual(input_shapes[0], input_shapes[1]));
+      assert.strictEqual(input_shapes.length, 2);
+      assert.ok(Shape.isEqual(input_shapes[0], input_shapes[1]));
       return [input_shapes[0]];
     case "mul":
-      console.assert(input_shapes.length === 2);
-      console.assert(Shape.isEqual(input_shapes[0], input_shapes[1]));
+      assert.strictEqual(input_shapes.length, 2);
+      assert.ok(Shape.isEqual(input_shapes[0], input_shapes[1]));
       return [input_shapes[0]];
-    case "matmul":
-      console.assert(input_shapes.length === 2);
-      return [Shape.matmul(input_shapes[0], input_shapes[1])];
+    case "dot_general":
+      assert.strictEqual(input_shapes.length, 2);
+      return [Shape.dotGeneral(input_shapes[0], input_shapes[1], this.batch_lhs, this.batch_rhs, this.contracting_lhs, this.contracting_rhs)];
     case "transpose":
-      console.assert(input_shapes.length === 1);
-      return [input_shapes[0].transpose()];
+      assert.strictEqual(input_shapes.length, 1);
+      return [input_shapes[0].transpose(this.permutation)];
     case "block":
       // TODO
       return [];
     case "reshape":
-      console.assert(input_shapes.length === 1);
-      console.assert(input_shapes[0].total_size() === this.shape.total_size());
+      assert.strictEqual(input_shapes.length, 1);
+      assert.strictEqual(input_shapes[0].total_size(), this.shape.total_size());
       return [this.shape];
     case "broadcast":
-      console.assert(input_shapes.length === 1);
-      console.assert(input_shapes[0].total_size() === this.shape.total_size());
+      assert.strictEqual(input_shapes.length, 1);
+      assert.strictEqual(input_shapes[0].total_size(), this.shape.total_size());
       return [this.shape];
     case "constant":
       return [this.value.shape()];
@@ -126,10 +131,10 @@ export class EvalTrace extends Trace<Tensor> {
       case "constant":
         return [p.value];
       case "add":
-        console.assert(inputs.length === 2);
+        assert.strictEqual(inputs.length, 2);
         return [Tensor.add(inputs[0], inputs[1])];
       case "mul":
-        console.assert(inputs.length === 2);
+        assert.strictEqual(inputs.length, 2);
         return [Tensor.mul(inputs[0], inputs[1])];
     }
 
@@ -288,7 +293,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           ),
         ];
       case "add": {
-        console.assert(inputs.length === 2);
+        assert.strictEqual(inputs.length, 2);
         const value = this.#inner.add(inputs[0].value, inputs[1].value);
         return [
           new GradTracer(
@@ -298,7 +303,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
         ];
       }
       case "mul": {
-        console.assert(inputs.length === 2);
+        assert.strictEqual(inputs.length, 2);
         const value = this.#inner.add(inputs[0].value, inputs[1].value);
         const shape = value.shape();
         const grad = this.linearAdd(
@@ -332,7 +337,7 @@ export const grad = (
     });
     // Run the function on the gradient tracer.
     const result = fun(grad_trace, ...param_tracers);
-    console.assert(result.length === 1);
+    assert.strictEqual(result.length, 1);
     // Evaluate the gnerated gradient graph backwards and return the result.
     return grad_trace.evaluateGraphBackwards(result[0].grad);
   };

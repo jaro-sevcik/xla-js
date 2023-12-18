@@ -1,4 +1,5 @@
 import * as xla from "../xla-addon";
+import { strict as assert } from 'assert';
 
 export type PrimitiveType = xla.PrimitiveType;
 
@@ -27,26 +28,45 @@ export class Shape {
     return xla.Shape.forArray(this.#type, this.#dimensions);
   }
 
-  static matmul(lhs: Shape, rhs: Shape): Shape {
-    console.assert(lhs.#dimensions.length === rhs.#dimensions.length);
-    console.assert(lhs.#dimensions.length >= 2);
-    console.assert(Shape.isEqualUpto(lhs, rhs, lhs.#dimensions.length - 2));
-    const dimensions = [...lhs.#dimensions].splice(
-      lhs.#dimensions.length - 1,
-      1,
-      rhs.#dimensions[rhs.#dimensions.length - 1],
-    );
-    return new Shape(lhs.#type, dimensions);
+  static dotGeneral(lhs: Shape, rhs: Shape, batch_lhs: number[], batch_rhs: number[], contracting_lhs: number[], contracting_rhs: number[]): Shape {
+    const lhs_dims = [...lhs.dimensions()];
+    const rhs_dims = [...rhs.dimensions()];
+    const result = [];
+
+    assert.strictEqual(batch_lhs.length, batch_rhs.length, "Numbers of batch dimensions must match");
+    assert.strictEqual(lhs.element_type(), rhs.element_type(), "Element types must match");
+
+    for (let i = 0; i < batch_lhs.length; i++) {
+      assert.strictEqual(lhs_dims[batch_lhs[i]], rhs_dims[batch_rhs[i]], "Batch dimension sizes must match");
+      result.push(lhs_dims[batch_lhs[i]]);
+      lhs_dims[batch_lhs[i]] = -1;
+      rhs_dims[batch_rhs[i]] = -1;
+    }
+
+    assert.strictEqual(batch_lhs.length, batch_rhs.length, "Number of contracting dimensions must match");
+    for (let i = 0; i < contracting_lhs.length; i++) {
+      assert.strictEqual(lhs_dims[contracting_lhs[i]], rhs_dims[contracting_rhs[i]], "Contracting dimension sizes must match");
+      lhs_dims[contracting_lhs[i]] = -1;
+      rhs_dims[contracting_rhs[i]] = -1;
+    }
+
+    for (const d of lhs_dims) {
+      if (d >= 0) result.push(d);
+    }
+    for (const d of rhs_dims) {
+      if (d >= 0) result.push(d);
+    }
+
+    return new Shape(lhs.#type, result);
   }
 
-  transpose(): Shape {
-    console.assert(this.#dimensions.length >= 2);
-    const dimensions = [...this.#dimensions].splice(
-      this.#dimensions.length - 2,
-      2,
-      this.#dimensions[this.#dimensions.length - 1],
-      this.#dimensions[this.#dimensions.length - 2],
-    );
+  transpose(permutation: number[]): Shape {
+    const dimensions = Array(this.#dimensions.length).fill(-1);
+    assert.strictEqual(permutation.length, dimensions.length);
+    for (let i = 0; i < permutation.length; i++) {
+      assert.ok(dimensions[i] === -1, "Duplicate indices in transpose permutation");
+      dimensions[i] = this.#dimensions[permutation[i]];
+    }
     return new Shape(this.#type, dimensions);
   }
 

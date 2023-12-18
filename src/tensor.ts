@@ -1,5 +1,6 @@
 import * as xla from "../xla-addon";
 import { Shape } from "./shape";
+import { strict as assert } from 'assert';
 
 let xlaClient = new xla.Client();
 
@@ -44,7 +45,7 @@ export class Tensor {
       [[this.#ensureBuffer()]],
       {},
     );
-    return new Tensor(this.shape().transpose(), results[0][0]);
+    return new Tensor(this.shape().transpose(permutation), results[0][0]);
   }
 
   #ensureBuffer(): xla.PjRtBuffer {
@@ -89,7 +90,7 @@ export class Tensor {
   }
 
   static add(lhs: Tensor, rhs: Tensor) {
-    console.assert(Shape.isEqual(lhs.shape(), rhs.shape()));
+    assert.ok(Shape.isEqual(lhs.shape(), rhs.shape()));
 
     const builder = new xla.XlaBuilder("add");
     const lhs_node = xla.parameter(builder, 0, lhs.#xlaShape(), "lhs");
@@ -105,7 +106,7 @@ export class Tensor {
   }
 
   static mul(lhs: Tensor, rhs: Tensor) {
-    console.assert(Shape.isEqual(lhs.shape(), rhs.shape()));
+    assert.ok(Shape.isEqual(lhs.shape(), rhs.shape()));
 
     const builder = new xla.XlaBuilder("mul");
     const lhs_node = xla.parameter(builder, 0, lhs.#xlaShape(), "lhs");

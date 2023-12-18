@@ -26,6 +26,7 @@ export class PjRtBuffer {
 export class Literal {
   getFirstElementF32(): number;
   data(ptype: PrimitiveType): number[];
+  get(index: number[]): number;
   shape(): Shape;
   reshape(dimensions: number[]): Literal;
   broadcast(shape: Shape, dimensions: number[]): Literal;

@@ -336,6 +336,9 @@ Napi::Object LiteralWrapper::Init(Napi::Env env, Napi::Object exports) {
                          &LiteralWrapper::GetFirstElementF32,
                          static_cast<napi_property_attributes>(
                              napi_writable | napi_configurable)),
+          InstanceMethod("get", &LiteralWrapper::Get,
+                         static_cast<napi_property_attributes>(
+                             napi_writable | napi_configurable)),
           InstanceMethod("data", &LiteralWrapper::Data,
                          static_cast<napi_property_attributes>(
                              napi_writable | napi_configurable)),
@@ -364,6 +367,56 @@ Napi::Value LiteralWrapper::GetFirstElementF32(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   float result = value()->GetFirstElement<float>();
   return Napi::Number::New(env, result);
+}
+
+Napi::Value LiteralWrapper::Get(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() != 1 || !info[0].IsArray()) {
+    Napi::Error::New(env,
+                     "Literal.get requires an array of indices as the argument")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  if (!value()->shape().IsArray()) {
+    Napi::Error::New(env, "Get is only supported for arrays")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::vector<int64_t> indices =
+      int64ArrayFromNapiArray(env, info[0].As<Napi::Array>());
+
+  if (value()->shape().rank() != indices.size()) {
+    Napi::Error::New(env, "index length does not match dimensions")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  for (size_t i = 0; i < value()->shape().rank(); i++) {
+    if (value()->shape().dimensions(i) <= indices[i]) {
+      std::string msg = absl::StrFormat(
+          "Index %lli at dimension %zi is out of bounds (size is %lli)",
+          indices[i], i, value()->shape().dimensions(i));
+      Napi::Error::New(env, msg.c_str()).ThrowAsJavaScriptException();
+      return env.Null();
+    }
+  }
+
+  switch (value()->shape().element_type()) {
+  case xla::F32:
+    return Napi::Number::New(env, value()->Get<float>(absl::Span<const int64_t>(
+                                      indices.data(), indices.size())));
+  default:
+    break;
+  }
+
+  std::string msg =
+      absl::StrFormat("Get for element type '%s' is not supported",
+                      xla::PrimitiveType_Name(value()->shape().element_type()));
+  Napi::Error::New(env, msg.c_str()).ThrowAsJavaScriptException();
+  return env.Null();
 }
 
 namespace {
@@ -847,7 +900,7 @@ Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
 
 Napi::Value Broadcast(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Broadcast function requires a XlaOp arguments and a list "
+  const char *msg = "Broadcast function requires a XlaOp argument and a list "
                     "of dimension sizes";
   if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
@@ -868,7 +921,7 @@ Napi::Value Broadcast(const Napi::CallbackInfo &info) {
 Napi::Value Transpose(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   const char *msg =
-      "Transpose function requires a XlaOp arguments and a permutation list";
+      "Transpose function requires a XlaOp argument and a permutation list";
   if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
     return env.Null();
@@ -888,7 +941,7 @@ Napi::Value Transpose(const Napi::CallbackInfo &info) {
 Napi::Value Reshape(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   const char *msg =
-      "Reshape function requires a XlaOp arguments and a list of new sizes";
+      "Reshape function requires a XlaOp argument and a list of new sizes";
   if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
     Napi::Error::New(env, msg).ThrowAsJavaScriptException();
     return env.Null();
@@ -902,6 +955,26 @@ Napi::Value Reshape(const Napi::CallbackInfo &info) {
 
   xla::XlaOp *op = new xla::XlaOp(xla::Reshape(
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value Iota(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  const char *msg =
+      "iota function requires an XlaBuilder argument, a shape and a dimension";
+  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsObject() || !info[2].IsNumber()) {
+    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
+  auto shape = ShapeWrapper::FromValue(env, info[1]);
+  auto index = info[0].As<Napi::Number>().Int64Value();
+  if (env.IsExceptionPending())
+    return env.Null();
+
+  xla::XlaOp *op = new xla::XlaOp(xla::Iota(
+      builder, *shape, index));
   return XlaOpWrapper::Create(env, op);
 }
 
@@ -937,6 +1010,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New<Transpose>(env));
   exports.Set(Napi::String::New(env, "reshape"),
               Napi::Function::New<Reshape>(env));
+  exports.Set(Napi::String::New(env, "iota"),
+              Napi::Function::New<Iota>(env));
 
   return exports;
 }

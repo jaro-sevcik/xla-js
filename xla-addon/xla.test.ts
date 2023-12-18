@@ -104,5 +104,10 @@ describe('XLA literal', () => {
     const lit = xla.Literal.createR0(xla.PrimitiveType.F32, 1.0).broadcast(shape, []);
     expect(lit.data(xla.PrimitiveType.F32)).toStrictEqual([1, 1, 1]);
   });
+
+  test('can get element by index', () => {
+    const lit = xla.Literal.createR1(xla.PrimitiveType.F32, [1, 2]);
+    expect(lit.get([1])).toStrictEqual(2);
+  });
 });
 
