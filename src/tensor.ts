@@ -1,5 +1,5 @@
 import * as xla from "../xla-addon";
-import { Shape } from "./shape";
+import { PrimitiveType, Shape } from "./shape";
 import { strict as assert } from "assert";
 
 let xlaClient = new xla.Client();
@@ -51,10 +51,7 @@ export class Tensor {
     const computation = builder.build(xla.reshape(node, new_sizes));
     const executable = xlaClient.compile(computation, {});
     const results = executable.execute([[this.#ensureBuffer()]], {});
-    return new Tensor(
-      new Shape(this.shape().element_type(), new_sizes),
-      results[0][0],
-    );
+    return new Tensor(new Shape(this.shape().element_type(), new_sizes), results[0][0]);
   }
 
   broadcast(new_sizes: number[]): Tensor {
@@ -63,10 +60,7 @@ export class Tensor {
     const computation = builder.build(xla.broadcast(node, new_sizes));
     const executable = xlaClient.compile(computation, {});
     const results = executable.execute([[this.#ensureBuffer()]], {});
-    return new Tensor(
-      new Shape(this.shape().element_type(), new_sizes),
-      results[0][0],
-    );
+    return new Tensor(new Shape(this.shape().element_type(), new_sizes), results[0][0]);
   }
 
   #ensureBuffer(): xla.PjRtBuffer {
@@ -100,7 +94,7 @@ export class Tensor {
   }
 
   static broadcastConstant(constant: number, shape: Shape): Tensor {
-    const l = xla.Literal.createR0(xla.PrimitiveType.F32, constant);
+    const l = xla.Literal.createR0(shape.element_type(), constant);
     const b = l.broadcast(shape.toXlaShape(), []);
     return new Tensor(shape, undefined, b);
   }
@@ -108,6 +102,11 @@ export class Tensor {
   static constantR0(v: number): Tensor {
     const l = xla.Literal.createR0(xla.PrimitiveType.F32, v);
     return new Tensor(new Shape(xla.PrimitiveType.F32, []), undefined, l);
+  }
+
+  static constantR1(v: number[]): Tensor {
+    const l = xla.Literal.createR1(xla.PrimitiveType.F32, v);
+    return new Tensor(new Shape(xla.PrimitiveType.F32, [v.length]), undefined, l);
   }
 
   static add(lhs: Tensor, rhs: Tensor) {
@@ -118,10 +117,7 @@ export class Tensor {
     const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
     const computation = builder.build(xla.add(lhs_node, rhs_node));
     const executable = xlaClient.compile(computation, {});
-    const results = executable.execute(
-      [[lhs.#ensureBuffer(), rhs.#ensureBuffer()]],
-      {},
-    );
+    const results = executable.execute([[lhs.#ensureBuffer(), rhs.#ensureBuffer()]], {});
 
     return new Tensor(lhs.shape(), results[0][0]);
   }
@@ -134,10 +130,7 @@ export class Tensor {
     const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
     const computation = builder.build(xla.mul(lhs_node, rhs_node));
     const executable = xlaClient.compile(computation, {});
-    const results = executable.execute(
-      [[lhs.#ensureBuffer(), rhs.#ensureBuffer()]],
-      {},
-    );
+    const results = executable.execute([[lhs.#ensureBuffer(), rhs.#ensureBuffer()]], {});
 
     return new Tensor(lhs.shape(), results[0][0]);
   }
@@ -150,33 +143,16 @@ export class Tensor {
     batch_lhs: number[],
     batch_rhs: number[],
   ): Tensor {
-    const shape = Shape.dotGeneral(
-      lhs.shape(),
-      rhs.shape(),
-      contracting_lhs,
-      contracting_rhs,
-      batch_lhs,
-      batch_rhs,
-    );
+    const shape = Shape.dotGeneral(lhs.shape(), rhs.shape(), contracting_lhs, contracting_rhs, batch_lhs, batch_rhs);
 
     const builder = new xla.XlaBuilder("dotGeneral");
     const lhs_node = xla.parameter(builder, 0, lhs.#xlaShape(), "lhs");
     const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
     const computation = builder.build(
-      xla.dotGeneral(
-        lhs_node,
-        rhs_node,
-        contracting_lhs,
-        contracting_rhs,
-        batch_lhs,
-        batch_rhs,
-      ),
+      xla.dotGeneral(lhs_node, rhs_node, contracting_lhs, contracting_rhs, batch_lhs, batch_rhs),
     );
     const executable = xlaClient.compile(computation, {});
-    const results = executable.execute(
-      [[lhs.#ensureBuffer(), rhs.#ensureBuffer()]],
-      {},
-    );
+    const results = executable.execute([[lhs.#ensureBuffer(), rhs.#ensureBuffer()]], {});
 
     return new Tensor(shape, results[0][0]);
   }
@@ -195,4 +171,46 @@ export class Tensor {
 
     return new Tensor(shape, results[0][0]);
   }
+}
+
+export type TensorLiteral = number | TensorLiteral[];
+
+export function literal(t: TensorLiteral, p: PrimitiveType = PrimitiveType.F32): Tensor {
+  const flat: number[] = [];
+  const dimensions = [];
+  const index = [];
+  const array: TensorLiteral[][] = [];
+  let current = t;
+
+  // Figure out the dimensions.
+  while (typeof current !== "number") {
+    assert.ok(current.length > 0, "Literal arrays must be non-empty");
+    dimensions.push(current.length);
+    index.push(0);
+    array.push(current);
+    current = current[0];
+  }
+
+  const dims = dimensions.length;
+  // Flatten the array while doing some sanity checks on the shape.
+  while (true) {
+    const element = array[dims-1][index[dims-1]];
+    assert.ok(typeof element === "number", "Ragged constants are not supported");
+    flat.push(element);
+
+    let d;
+    for (d = dims - 1; d >= 0; d--) {
+      index[d]++;
+      if (index[d] < dimensions[d]) break;
+    }
+    if (d < 0) break;
+    for (d = d + 1; d < dims; d++) {
+      index[d] = 0;
+      const next: number | TensorLiteral[] = array[d - 1][index[d - 1]];
+      if (typeof next === "number") throw new Error("Ragged constants are not supported");
+      array[d] = next;
+    }
+  }
+
+  return Tensor.constantR1(flat).reshape(dimensions);
 }

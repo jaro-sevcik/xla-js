@@ -2,6 +2,7 @@ import * as xla from "../xla-addon";
 import { strict as assert } from "assert";
 
 export type PrimitiveType = xla.PrimitiveType;
+export const PrimitiveType = xla.PrimitiveType;
 
 export class Shape {
   #dimensions: number[];

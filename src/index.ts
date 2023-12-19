@@ -1,4 +1,5 @@
 import * as xla from "../xla-addon";
+import * as tensor from "./tensor";
 
 const client = new xla.Client();
 
@@ -43,3 +44,5 @@ const client = new xla.Client();
   console.log("Data: ", literal.data(xla.PrimitiveType.F32));
   console.log("Shape: ", literal.shape().dimensions());
 }
+
+console.log(tensor.literal([[1, 2, 3], [3, 4, 5]]).toString())

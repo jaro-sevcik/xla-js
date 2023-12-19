@@ -9,11 +9,9 @@ export class XlaBuilder {
   build(op: XlaOp): XlaComputation;
 }
 
-export class XlaOp {
-}
+export class XlaOp {}
 
-export class XlaComputation {
-}
+export class XlaComputation {}
 
 export class PjRtLoadedExecutable {
   execute(inputs: PjRtBuffer[][], options: {}): PjRtBuffer[][];
@@ -51,8 +49,14 @@ export function constantR1(builder: XlaBuilder, ptype: PrimitiveType, ns: number
 export function parameter(builder: XlaBuilder, parameter_number: number, shape: Shape, name: string): XlaOp;
 export function add(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function mul(lhs: XlaOp, rhs: XlaOp): XlaOp;
-export function dotGeneral(lhs: XlaOp, rhs: XlaOp, lhs_contracting_dimensions: number[], rhs_contracting_dimensions: number[],
-    lhs_batch_dimensions: number[], rhs_batch_dimensions: number[]): XlaOp;
+export function dotGeneral(
+  lhs: XlaOp,
+  rhs: XlaOp,
+  lhs_contracting_dimensions: number[],
+  rhs_contracting_dimensions: number[],
+  lhs_batch_dimensions: number[],
+  rhs_batch_dimensions: number[]
+): XlaOp;
 export function broadcast(input: XlaOp, dims: number[]): XlaOp;
 export function transpose(input: XlaOp, permutation: number[]): XlaOp;
 export function reshape(input: XlaOp, new_sizes: number[]): XlaOp;
