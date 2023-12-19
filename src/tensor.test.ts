@@ -20,4 +20,14 @@ describe("Tensor", () => {
   test("stringifies correctly", () => {
     expect(Tensor.constantR0(3).toString()).toBe('f32[] 3');
   });
+
+  test("matrix literal and back", () => {
+    const l = [[1, 2, 3], [4, 5, 6]];
+    expect(Tensor.literal(l).toLiteral()).toStrictEqual(l);
+  });
+
+  test("scalar literal and back", () => {
+    const l = 42;
+    expect(Tensor.literal(l).toLiteral()).toStrictEqual(l);
+  });
 });

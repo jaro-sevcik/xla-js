@@ -12,6 +12,7 @@ function testfn<T>(trace: Trace<T>, x: T): T[] {
 describe("Trace", () => {
   const trace = new EvalTrace();
   const const3 = Tensor.constantR0(3.0);
+  const vec2 = Tensor.literal([3, 4]);
 
   test("can evaluate a scalar mul-add expression", () => {
     expect(testfn(trace, const3)[0].data()).toStrictEqual([27]);
@@ -27,10 +28,11 @@ describe("Trace", () => {
     expect(grad_testfn(trace, const3)[0].data()).toStrictEqual([2]);
   });
 
-  // test("can evaluate vector-add expression", () => {
-  //   function add<T>(trace: Trace<T>, x: T): T[] {
-  //     return trace.add(trace.constant(Tensor.constant))
-  //   }
+  test("can evaluate vector-add expression", () => {
+    function add<T>(t: Trace<T>, x: T): T[] {
+      return [t.add(t.constant(Tensor.literal([1, 2])), x)];
+    }
 
-  // });
+    expect(add(trace, vec2)[0].toLiteral()).toStrictEqual([4, 6]);
+  });
 });

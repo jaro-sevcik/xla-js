@@ -4,6 +4,8 @@ import { strict as assert } from "assert";
 
 let xlaClient = new xla.Client();
 
+export type TensorLiteral = number | TensorLiteral[];
+
 export class Tensor {
   #buffer?: xla.PjRtBuffer;
   #literal?: xla.Literal;
@@ -61,6 +63,36 @@ export class Tensor {
     const executable = xlaClient.compile(computation, {});
     const results = executable.execute([[this.#ensureBuffer()]], {});
     return new Tensor(new Shape(this.shape().element_type(), new_sizes), results[0][0]);
+  }
+
+  toLiteral(): TensorLiteral {
+    const rank = this.shape().rank();
+    let data = this.data();
+    if (rank === 0) return data[0];
+
+    const dims = this.shape().dimensions();
+    const stack: TensorLiteral[][] = [];
+
+    for (let i = 0; i < rank; i++) {
+      stack[i] = [];
+      if (i > 0) {
+        stack[i - 1].push(stack[i]);
+      }
+    }
+
+    for (let i = 0; i < data.length; i++) {
+      let e: TensorLiteral = data[i];
+
+      for (let d = rank - 1; d >= 0; d--) {
+        if (stack[d].length < dims[d]) {
+          stack[d].push(e);
+          break;
+        }
+        stack[d] = [e];
+        e = stack[d];
+      }
+    }
+    return stack[0];
   }
 
   #ensureBuffer(): xla.PjRtBuffer {
@@ -171,46 +203,48 @@ export class Tensor {
 
     return new Tensor(shape, results[0][0]);
   }
-}
 
-export type TensorLiteral = number | TensorLiteral[];
-
-export function literal(t: TensorLiteral, p: PrimitiveType = PrimitiveType.F32): Tensor {
-  const flat: number[] = [];
-  const dimensions = [];
-  const index = [];
-  const array: TensorLiteral[][] = [];
-  let current = t;
-
-  // Figure out the dimensions.
-  while (typeof current !== "number") {
-    assert.ok(current.length > 0, "Literal arrays must be non-empty");
-    dimensions.push(current.length);
-    index.push(0);
-    array.push(current);
-    current = current[0];
-  }
-
-  const dims = dimensions.length;
-  // Flatten the array while doing some sanity checks on the shape.
-  while (true) {
-    const element = array[dims-1][index[dims-1]];
-    assert.ok(typeof element === "number", "Ragged constants are not supported");
-    flat.push(element);
-
-    let d;
-    for (d = dims - 1; d >= 0; d--) {
-      index[d]++;
-      if (index[d] < dimensions[d]) break;
+  static literal(t: TensorLiteral, p: PrimitiveType = PrimitiveType.F32): Tensor {
+    if (typeof t === "number") {
+      return Tensor.constantR0(t);
     }
-    if (d < 0) break;
-    for (d = d + 1; d < dims; d++) {
-      index[d] = 0;
-      const next: number | TensorLiteral[] = array[d - 1][index[d - 1]];
-      if (typeof next === "number") throw new Error("Ragged constants are not supported");
-      array[d] = next;
-    }
-  }
 
-  return Tensor.constantR1(flat).reshape(dimensions);
+    const flat: number[] = [];
+    const dimensions = [];
+    const index = [];
+    const array: TensorLiteral[][] = [];
+    let current: TensorLiteral = t;
+
+    // Figure out the dimensions.
+    while (typeof current !== "number") {
+      assert.ok(current.length > 0, "Literal arrays must be non-empty");
+      dimensions.push(current.length);
+      index.push(0);
+      array.push(current);
+      current = current[0];
+    }
+
+    const rank = dimensions.length;
+    // Flatten the array while doing some sanity checks on the shape.
+    while (true) {
+      const element = array[rank - 1][index[rank - 1]];
+      assert.ok(typeof element === "number", "Ragged constants are not supported");
+      flat.push(element);
+
+      let d;
+      for (d = rank - 1; d >= 0; d--) {
+        index[d]++;
+        if (index[d] < dimensions[d]) break;
+      }
+      if (d < 0) break;
+      for (d = d + 1; d < rank; d++) {
+        index[d] = 0;
+        const next: number | TensorLiteral[] = array[d - 1][index[d - 1]];
+        if (typeof next === "number") throw new Error("Ragged constants are not supported");
+        array[d] = next;
+      }
+    }
+
+    return Tensor.constantR1(flat).reshape(dimensions);
+  }
 }
