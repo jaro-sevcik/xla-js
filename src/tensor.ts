@@ -125,6 +125,10 @@ export class Tensor {
     return Tensor.broadcastConstant(0, shape);
   }
 
+  static ones(shape: Shape): Tensor {
+    return Tensor.broadcastConstant(1, shape);
+  }
+
   static broadcastConstant(constant: number, shape: Shape): Tensor {
     const l = xla.Literal.createR0(shape.element_type(), constant);
     const b = l.broadcast(shape.toXlaShape(), []);

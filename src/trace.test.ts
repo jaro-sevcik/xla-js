@@ -57,4 +57,26 @@ describe("Trace", () => {
       [49, 64],
     ]);
   });
+
+  test("can compute sum via dot-product", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      const ones = t.constant(Tensor.ones(x.shape()));
+      return [t.dotGeneral(x, ones, [0], [0], [], [])];
+    }
+
+    const x = Tensor.literal([1, 2, 3, 4]);
+    expect(sum(trace, x)[0].toLiteral()).toStrictEqual(10);
+  });
+
+  test.skip("can compute gradient of sum via dot-product", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      const ones = t.constant(Tensor.ones(x.shape()));
+      return [t.dotGeneral(x, ones, [0], [0], [], [])];
+    }
+
+    const grad_sum = grad(sum);
+
+    const x = Tensor.literal([1, 2, 3, 4]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([1, 1, 1, 1]);
+  });
 });
