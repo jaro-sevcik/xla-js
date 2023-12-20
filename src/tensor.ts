@@ -179,7 +179,8 @@ export class Tensor {
 
     const builder = new xla.XlaBuilder("dotGeneral");
     const lhs_node = xla.parameter(builder, 0, lhs.#xlaShape(), "lhs");
-    const rhs_node = xla.parameter(builder, 1, lhs.#xlaShape(), "rhs");
+    const rhs_node = xla.parameter(builder, 1, rhs.#xlaShape(), "rhs");
+
     const computation = builder.build(
       xla.dotGeneral(lhs_node, rhs_node, contracting_lhs, contracting_rhs, batch_lhs, batch_rhs),
     );
@@ -190,9 +191,9 @@ export class Tensor {
   }
 
   static matmul(lhs: Tensor, rhs: Tensor) {
-    const dims = lhs.shape().rank();
-    const batch = new Array(dims).fill(0).map((e, i) => i);
-    return Tensor.dotGeneral(lhs, rhs, [dims - 1], [dims - 2], batch, batch);
+    const rank = lhs.shape().rank();
+    const batch = new Array(rank).fill(0).map((e, i) => i);
+    return Tensor.dotGeneral(lhs, rhs, [rank - 1], [rank - 2], batch, batch);
   }
 
   static arange(shape: Shape, dimension: number) {

@@ -1,8 +1,8 @@
 import { Shape } from "./shape";
-import { Tensor } from "./tensor";
+import { Tensor, TensorLiteral } from "./tensor";
 import { strict as assert } from "assert";
 
-interface Shaped {
+export interface Shaped {
   shape(): Shape;
 }
 
@@ -111,7 +111,7 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
   assertNever(this);
 }
 
-export abstract class Trace<T> {
+export abstract class Trace<T extends Shaped> {
   abstract primitive(p: Primitive, inputs: T[]): T[];
 
   mul(lhs: T, rhs: T): T {
@@ -142,6 +142,16 @@ export abstract class Trace<T> {
     )[0];
   }
 
+  literal(value: TensorLiteral): T {
+    return this.primitive(
+      {
+        primitive: "constant",
+        value: Tensor.literal(value),
+      } satisfies Constant,
+      [],
+    )[0];
+  }
+
   dotGeneral(
     lhs: T,
     rhs: T,
@@ -160,6 +170,14 @@ export abstract class Trace<T> {
       } satisfies DotGeneral,
       [lhs, rhs],
     )[0];
+  }
+
+  matmul(lhs: T, rhs: T): T {
+    const rank = lhs.shape().rank();
+    assert.ok(rank >= 2);
+    assert.strictEqual(rank, rhs.shape().rank());
+    const batch = new Array(rank - 2).fill(0).map((e, i) => i);
+    return this.dotGeneral(lhs, rhs, [rank - 1], [rank - 2], batch, batch);
   }
 
   transpose(input: T, permutation: number[]): T {
@@ -258,7 +276,7 @@ class LinearGraph<T> {
   constructor(readonly input_shapes: Shape[]) {}
 }
 
-class LinearExpressionEvakuationContext<T> {
+class LinearExpressionEvakuationContext<T extends Shaped> {
   values: T[];
   inputs: T[];
   #trace: Trace<T>;
