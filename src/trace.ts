@@ -1,4 +1,5 @@
-import { Shape } from "./shape";
+import * as Permutation from "./permutation";
+import { DotGeneralDimensions, Shape } from "./shape";
 import { Tensor, TensorLiteral } from "./tensor";
 import { strict as assert } from "assert";
 
@@ -16,10 +17,7 @@ export type Add = {
 
 export type DotGeneral = {
   primitive: "dotGeneral";
-  contracting_lhs: number[];
-  contracting_rhs: number[];
-  batch_lhs: number[];
-  batch_rhs: number[];
+  dimensions: DotGeneralDimensions;
 };
 
 export type Transpose = {
@@ -46,15 +44,7 @@ export type Block = {
   primitive: "block";
 };
 
-export type Primitive =
-  | Mul
-  | Add
-  | DotGeneral
-  | Transpose
-  | Reshape
-  | Broadcast
-  | Constant
-  | Block;
+export type Primitive = Mul | Add | DotGeneral | Transpose | Reshape | Broadcast | Constant | Block;
 
 function assertNever(x: never): never {
   throw new Error("Unexpected value: " + x);
@@ -72,16 +62,7 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       return [input_shapes[0]];
     case "dotGeneral":
       assert.strictEqual(input_shapes.length, 2);
-      return [
-        Shape.dotGeneral(
-          input_shapes[0],
-          input_shapes[1],
-          this.batch_lhs,
-          this.batch_rhs,
-          this.contracting_lhs,
-          this.contracting_rhs,
-        ),
-      ];
+      return [Shape.dotGeneral(input_shapes[0], input_shapes[1], this.dimensions)];
     case "transpose":
       assert.strictEqual(input_shapes.length, 1);
       return [input_shapes[0].transpose(this.permutation)];
@@ -92,17 +73,14 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       assert.strictEqual(input_shapes.length, 1);
       assert.strictEqual(
         input_shapes[0].total_size(),
-        this.new_sizes.reduce((s, v) => s * v, 1),
+        this.new_sizes.reduce((s, v) => s * v, 1)
       );
       return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
     case "broadcast":
       assert.strictEqual(input_shapes.length, 1);
       assert.strictEqual(input_shapes[0].rank(), this.new_sizes);
       for (let i = 0; i < this.new_sizes.length; i++) {
-        assert.ok(
-          input_shapes[0].dimensions()[i] === 1 ||
-            input_shapes[0].dimensions()[i] === this.new_sizes[i],
-        );
+        assert.ok(input_shapes[0].dimensions()[i] === 1 || input_shapes[0].dimensions()[i] === this.new_sizes[i]);
       }
       return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
     case "constant":
@@ -119,7 +97,7 @@ export abstract class Trace<T extends Shaped> {
       {
         primitive: "mul",
       } satisfies Mul,
-      [lhs, rhs],
+      [lhs, rhs]
     )[0];
   }
 
@@ -128,7 +106,7 @@ export abstract class Trace<T extends Shaped> {
       {
         primitive: "add",
       } satisfies Add,
-      [lhs, rhs],
+      [lhs, rhs]
     )[0];
   }
 
@@ -138,7 +116,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "constant",
         value,
       } satisfies Constant,
-      [],
+      []
     )[0];
   }
 
@@ -148,27 +126,17 @@ export abstract class Trace<T extends Shaped> {
         primitive: "constant",
         value: Tensor.literal(value),
       } satisfies Constant,
-      [],
+      []
     )[0];
   }
 
-  dotGeneral(
-    lhs: T,
-    rhs: T,
-    contracting_lhs: number[],
-    contracting_rhs: number[],
-    batch_lhs: number[],
-    batch_rhs: number[],
-  ): T {
+  dotGeneral(lhs: T, rhs: T, dimensions: DotGeneralDimensions): T {
     return this.primitive(
       {
         primitive: "dotGeneral",
-        contracting_lhs,
-        contracting_rhs,
-        batch_lhs,
-        batch_rhs,
+        dimensions,
       } satisfies DotGeneral,
-      [lhs, rhs],
+      [lhs, rhs]
     )[0];
   }
 
@@ -177,7 +145,12 @@ export abstract class Trace<T extends Shaped> {
     assert.ok(rank >= 2);
     assert.strictEqual(rank, rhs.shape().rank());
     const batch = new Array(rank - 2).fill(0).map((e, i) => i);
-    return this.dotGeneral(lhs, rhs, [rank - 1], [rank - 2], batch, batch);
+    return this.dotGeneral(lhs, rhs, {
+      contracting_lhs: [rank - 1],
+      contracting_rhs: [rank - 2],
+      batch_lhs: batch,
+      batch_rhs: batch,
+    });
   }
 
   transpose(input: T, permutation: number[]): T {
@@ -186,7 +159,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "transpose",
         permutation,
       } satisfies Transpose,
-      [input],
+      [input]
     )[0];
   }
 
@@ -196,7 +169,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "reshape",
         new_sizes,
       } satisfies Reshape,
-      [input],
+      [input]
     )[0];
   }
 
@@ -206,7 +179,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "broadcast",
         new_sizes,
       } satisfies Broadcast,
-      [input],
+      [input]
     )[0];
   }
 }
@@ -224,16 +197,7 @@ export class EvalTrace extends Trace<Tensor> {
         return [Tensor.mul(inputs[0], inputs[1])];
       case "dotGeneral":
         assert.strictEqual(inputs.length, 2);
-        return [
-          Tensor.dotGeneral(
-            inputs[0],
-            inputs[1],
-            p.contracting_lhs,
-            p.contracting_rhs,
-            p.batch_lhs,
-            p.batch_rhs,
-          ),
-        ];
+        return [Tensor.dotGeneral(inputs[0], inputs[1], p.dimensions)];
       case "transpose":
         assert.strictEqual(inputs.length, 1);
         return [inputs[0].transpose(p.permutation)];
@@ -253,10 +217,7 @@ export class EvalTrace extends Trace<Tensor> {
 type LinearExpressionInput = { kind: "input"; index: number };
 type LinearExpressionIndex = { kind: "expr"; index: number };
 type LinearExpressionZero = { kind: "zero"; shape: Shape };
-type LinearExpressionValue =
-  | LinearExpressionInput
-  | LinearExpressionIndex
-  | LinearExpressionZero;
+type LinearExpressionValue = LinearExpressionInput | LinearExpressionIndex | LinearExpressionZero;
 
 type LinearExpressionMul<T> = {
   kind: "mul";
@@ -268,7 +229,30 @@ type LinearExpressionAdd = {
   lhs: LinearExpressionValue;
   rhs: LinearExpressionValue;
 };
-type LinearExpression<T> = LinearExpressionMul<T> | LinearExpressionAdd;
+type LinearExpressionDotLeft<T> = {
+  kind: "dotGeneralLeft";
+  lhs: LinearExpressionValue;
+  rhs: T;
+  dimensions: DotGeneralDimensions;
+};
+type LinearExpressionDotRight<T> = {
+  kind: "dotGeneralRight";
+  lhs: T;
+  rhs: LinearExpressionValue;
+  dimensions: DotGeneralDimensions;
+};
+type LinearExpressionTranspose = {
+  kind: "transpose";
+  input: LinearExpressionValue;
+  permutation: number[];
+};
+
+type LinearExpression<T> =
+  | LinearExpressionMul<T>
+  | LinearExpressionAdd
+  | LinearExpressionDotLeft<T>
+  | LinearExpressionDotRight<T>
+  | LinearExpressionTranspose;
 
 class LinearGraph<T> {
   expressions: { shape: Shape; expression: LinearExpression<T> }[] = [];
@@ -281,11 +265,7 @@ class LinearExpressionEvakuationContext<T extends Shaped> {
   inputs: T[];
   #trace: Trace<T>;
 
-  constructor(
-    input_shapes: Shape[],
-    expression_shapes: Shape[],
-    trace: Trace<T>,
-  ) {
+  constructor(input_shapes: Shape[], expression_shapes: Shape[], trace: Trace<T>) {
     this.values = expression_shapes.map((s) => trace.constant(Tensor.zeros(s)));
     this.inputs = input_shapes.map((s) => trace.constant(Tensor.zeros(s)));
     this.#trace = trace;
@@ -294,16 +274,10 @@ class LinearExpressionEvakuationContext<T extends Shaped> {
   addToValue(index: LinearExpressionValue, value: T) {
     switch (index.kind) {
       case "expr":
-        this.values[index.index] = this.#trace.add(
-          this.values[index.index],
-          value,
-        );
+        this.values[index.index] = this.#trace.add(this.values[index.index], value);
         break;
       case "input":
-        this.inputs[index.index] = this.#trace.add(
-          this.inputs[index.index],
-          value,
-        );
+        this.inputs[index.index] = this.#trace.add(this.inputs[index.index], value);
         break;
       case "zero":
         break;
@@ -314,12 +288,48 @@ class LinearExpressionEvakuationContext<T extends Shaped> {
 class GradTracer<T extends Shaped> implements Shaped {
   constructor(
     readonly value: T,
-    readonly grad: LinearExpressionValue,
+    readonly grad: LinearExpressionValue
   ) {}
 
   shape(): Shape {
     return this.value.shape();
   }
+}
+
+function range(from: number, size: number) {
+  const result = new Array(size);
+  for (let i = 0; i < size; i++) {
+    result[i] = i + from;
+  }
+  return result;
+}
+
+type DotGeneralFullDimensions = {
+  contracting_lhs: number[];
+  contracting_rhs: number[];
+  batch_lhs: number[];
+  batch_rhs: number[];
+  other_lhs: number[];
+  other_rhs: number[];
+};
+
+function dotGeneralFullDims(
+  { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs }: DotGeneralDimensions,
+  lhs_rank: number,
+  rhs_rank: number
+): DotGeneralFullDimensions {
+  // Compute the remaining dims (after removing batch and contracting dims) for lhs and rhs.
+  let other_rhs = range(0, rhs_rank);
+  for (const i of contracting_rhs) other_rhs[i] = -1;
+  for (const i of batch_rhs) other_rhs[i] = -1;
+  other_rhs = other_rhs.filter((i) => i >= 0);
+
+  let other_lhs = range(0, lhs_rank);
+  for (const i of contracting_lhs) other_lhs[i] = -1;
+  for (const i of batch_lhs) other_lhs[i] = -1;
+  other_lhs = other_lhs.filter((i) => i >= 0);
+
+  return { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs, other_lhs, other_rhs };
 }
 
 class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
@@ -337,24 +347,54 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
     return this.#linearGraph.expressions.length - 1;
   }
 
-  linearAdd(
-    lhs: LinearExpressionValue,
-    rhs: LinearExpressionValue,
-    shape: Shape,
-  ): LinearExpressionValue {
+  linearAdd(lhs: LinearExpressionValue, rhs: LinearExpressionValue, shape: Shape): LinearExpressionValue {
     if (lhs.kind === "zero") return rhs;
     if (rhs.kind === "zero") return lhs;
     const index = this.addExpression(shape, { kind: "add", lhs, rhs });
     return { kind: "expr", index };
   }
 
-  linearMul(
-    lhs: LinearExpressionValue,
-    rhs: T,
-    shape: Shape,
-  ): LinearExpressionValue {
+  linearMul(lhs: LinearExpressionValue, rhs: T, shape: Shape): LinearExpressionValue {
     if (lhs.kind === "zero") return lhs;
     const index = this.addExpression(shape, { kind: "mul", lhs, rhs });
+    return { kind: "expr", index };
+  }
+
+  linearTranspose(input: LinearExpressionValue, permutation: number[], shape: Shape): LinearExpressionValue {
+    if (input.kind === "zero") return input;
+    const index = this.addExpression(shape.transpose(permutation), { kind: "transpose", input, permutation });
+    return { kind: "expr", index };
+  }
+
+  linearDotGeneralLeft(
+    lhs: LinearExpressionValue,
+    rhs: T,
+    dimensions: DotGeneralDimensions,
+    shape: Shape
+  ): LinearExpressionValue {
+    if (lhs.kind === "zero") return lhs;
+    const index = this.addExpression(shape, {
+      kind: "dotGeneralLeft",
+      lhs,
+      rhs,
+      dimensions,
+    });
+    return { kind: "expr", index };
+  }
+
+  linearDotGeneralRight(
+    lhs: T,
+    rhs: LinearExpressionValue,
+    dimensions: DotGeneralDimensions,
+    shape: Shape
+  ): LinearExpressionValue {
+    if (rhs.kind === "zero") return rhs;
+    const index = this.addExpression(shape, {
+      kind: "dotGeneralRight",
+      lhs,
+      rhs,
+      dimensions,
+    });
     return { kind: "expr", index };
   }
 
@@ -368,7 +408,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
     const context = new LinearExpressionEvakuationContext(
       this.#linearGraph.input_shapes,
       expression_shapes,
-      this.#inner,
+      this.#inner
     );
 
     context.addToValue(from, this.#inner.constant(Tensor.constantR0(1.0)));
@@ -384,6 +424,56 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
         case "mul":
           context.addToValue(e.lhs, this.#inner.mul(value, e.rhs));
           break;
+        case "transpose": {
+          context.addToValue(e.input, this.#inner.transpose(value, Permutation.invert(e.permutation)));
+          break;
+        }
+        case "dotGeneralLeft": {
+          const { contracting_lhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
+            e.dimensions,
+            value.shape().rank(),
+            e.rhs.shape().rank()
+          );
+
+          // Compute the dimensions for the trannsposed product.
+          const transposed_dims = {
+            contracting_lhs: range(batch_lhs.length + other_lhs.length, other_rhs.length),
+            contracting_rhs: other_rhs,
+            batch_lhs: range(0, batch_lhs.length),
+            batch_rhs,
+          };
+          const transposed_product = this.#inner.dotGeneral(value, e.rhs, transposed_dims);
+
+          // Transposed product starts with batch dims, then lhs other dims and finally the contracting dims.
+          // Let us shuffle them around.
+          const permutation = Permutation.invert(batch_lhs.concat(other_lhs, contracting_lhs));
+          const transposed = this.#inner.transpose(transposed_product, permutation);
+          context.addToValue(e.lhs, transposed);
+          break;
+        }
+        case "dotGeneralRight": {
+          const { contracting_rhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
+            e.dimensions,
+            e.lhs.shape().rank(),
+            value.shape().rank()
+          );
+
+          // Compute the dimensions for the trannsposed product.
+          const transposed_dims = {
+            contracting_lhs: other_lhs,
+            contracting_rhs: range(batch_rhs.length, other_rhs.length),
+            batch_lhs,
+            batch_rhs: range(0, batch_lhs.length),
+          };
+          const transposed_product = this.#inner.dotGeneral(e.lhs, value, transposed_dims);
+
+          // Transposed product starts with batch dims, then lhs other dims and finally the contracting dims.
+          // Let us shuffle them around.
+          const permutation = Permutation.invert(batch_rhs.concat(contracting_rhs, other_rhs));
+          const transposed = this.#inner.transpose(transposed_product, permutation);
+          context.addToValue(e.rhs, transposed);
+          break;
+        }
         default:
           assertNever(e);
       }
@@ -394,21 +484,11 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
   primitive(p: Primitive, inputs: GradTracer<T>[]): GradTracer<T>[] {
     switch (p.primitive) {
       case "constant":
-        return [
-          new GradTracer(
-            this.#inner.constant(p.value),
-            this.linearZero(p.value.shape()),
-          ),
-        ];
+        return [new GradTracer(this.#inner.constant(p.value), this.linearZero(p.value.shape()))];
       case "add": {
         assert.strictEqual(inputs.length, 2);
         const value = this.#inner.add(inputs[0].value, inputs[1].value);
-        return [
-          new GradTracer(
-            value,
-            this.linearAdd(inputs[0].grad, inputs[1].grad, value.shape()),
-          ),
-        ];
+        return [new GradTracer(value, this.linearAdd(inputs[0].grad, inputs[1].grad, value.shape()))];
       }
       case "mul": {
         assert.strictEqual(inputs.length, 2);
@@ -417,7 +497,25 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
         const grad = this.linearAdd(
           this.linearMul(inputs[0].grad, inputs[1].value, shape),
           this.linearMul(inputs[1].grad, inputs[0].value, shape),
-          shape,
+          shape
+        );
+        return [new GradTracer(value, grad)];
+      }
+      case "transpose": {
+        assert.strictEqual(inputs.length, 1);
+        const value = this.#inner.transpose(inputs[0].value, p.permutation);
+        const shape = value.shape();
+        const grad = this.linearTranspose(inputs[0].grad, p.permutation, shape);
+        return [new GradTracer(value, grad)];
+      }
+      case "dotGeneral": {
+        assert.strictEqual(inputs.length, 2);
+        const value = this.#inner.dotGeneral(inputs[0].value, inputs[1].value, p.dimensions);
+        const shape = value.shape();
+        const grad = this.linearAdd(
+          this.linearDotGeneralLeft(inputs[0].grad, inputs[1].value, p.dimensions, shape),
+          this.linearDotGeneralRight(inputs[0].value, inputs[1].grad, p.dimensions, shape),
+          shape
         );
         return [new GradTracer(value, grad)];
       }
@@ -428,19 +526,15 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
 
 export const grad = (
   fun: <U extends Shaped>(t: Trace<U>, ...x: U[]) => U[],
-  grad_input_count: number = 1,
+  grad_input_count: number = 1
 ): (<T extends Shaped>(t: Trace<T>, ...x: T[]) => T[]) => {
   return <T extends Shaped>(inner: Trace<T>, ...inputs: T[]) => {
     // Create the gradient trace and tracer for each parameter.
-    const grad_input_shapes = inputs
-      .slice(0, grad_input_count)
-      .map((v) => v.shape());
+    const grad_input_shapes = inputs.slice(0, grad_input_count).map((v) => v.shape());
     const grad_trace = new GradTrace<T>(inner, grad_input_shapes);
     const param_tracers: GradTracer<T>[] = inputs.map((value, i) => {
       const grad: LinearExpressionValue =
-        i < grad_input_count
-          ? { kind: "input", index: i }
-          : { kind: "zero", shape: value.shape() };
+        i < grad_input_count ? { kind: "input", index: i } : { kind: "zero", shape: value.shape() };
       return new GradTracer(value, grad);
     });
     // Run the function on the gradient tracer.

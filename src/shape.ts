@@ -4,6 +4,13 @@ import { strict as assert } from "assert";
 export type PrimitiveType = xla.PrimitiveType;
 export const PrimitiveType = xla.PrimitiveType;
 
+export type DotGeneralDimensions = {
+  contracting_lhs: number[];
+  contracting_rhs: number[];
+  batch_lhs: number[];
+  batch_rhs: number[];
+};
+
 export class Shape {
   #dimensions: number[];
   #type: PrimitiveType;
@@ -36,10 +43,7 @@ export class Shape {
   static dotGeneral(
     lhs: Shape,
     rhs: Shape,
-    contracting_lhs: number[],
-    contracting_rhs: number[],
-    batch_lhs: number[],
-    batch_rhs: number[],
+    { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs }: DotGeneralDimensions
   ): Shape {
     const lhs_dims = [...lhs.dimensions()];
     const rhs_dims = [...rhs.dimensions()];
@@ -60,7 +64,7 @@ export class Shape {
       assert.strictEqual(
         lhs_dims[contracting_lhs[i]],
         rhs_dims[contracting_rhs[i]],
-        "Contracting dimension sizes must match",
+        "Contracting dimension sizes must match"
       );
       lhs_dims[contracting_lhs[i]] = -1;
       rhs_dims[contracting_rhs[i]] = -1;

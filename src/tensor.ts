@@ -1,5 +1,5 @@
 import * as xla from "../xla-addon";
-import { PrimitiveType, Shape } from "./shape";
+import { DotGeneralDimensions, PrimitiveType, Shape } from "./shape";
 import { strict as assert } from "assert";
 
 let xlaClient = new xla.Client();
@@ -31,10 +31,10 @@ export class Tensor {
 
   transpose(permutation?: number[]): Tensor {
     const dims = this.shape().dimensions().length;
-    if (dims < 2) {
-      throw new Error("Can only transpose > 2 dimensions");
-    }
     if (!permutation) {
+      if (dims < 2) {
+        throw new Error("Can only transpose > 2 dimensions");
+      }
       permutation = [];
       for (let i = 0; i < dims - 2; i++) permutation.push(i);
       permutation.push(dims - 1, dims - 2);
@@ -171,22 +171,22 @@ export class Tensor {
     return new Tensor(lhs.shape(), results[0][0]);
   }
 
-  static dotGeneral(
-    lhs: Tensor,
-    rhs: Tensor,
-    contracting_lhs: number[],
-    contracting_rhs: number[],
-    batch_lhs: number[],
-    batch_rhs: number[],
-  ): Tensor {
-    const shape = Shape.dotGeneral(lhs.shape(), rhs.shape(), contracting_lhs, contracting_rhs, batch_lhs, batch_rhs);
+  static dotGeneral(lhs: Tensor, rhs: Tensor, dotDims: DotGeneralDimensions): Tensor {
+    const shape = Shape.dotGeneral(lhs.shape(), rhs.shape(), dotDims);
 
     const builder = new xla.XlaBuilder("dotGeneral");
     const lhs_node = xla.parameter(builder, 0, lhs.#xlaShape(), "lhs");
     const rhs_node = xla.parameter(builder, 1, rhs.#xlaShape(), "rhs");
 
     const computation = builder.build(
-      xla.dotGeneral(lhs_node, rhs_node, contracting_lhs, contracting_rhs, batch_lhs, batch_rhs),
+      xla.dotGeneral(
+        lhs_node,
+        rhs_node,
+        dotDims.contracting_lhs,
+        dotDims.contracting_rhs,
+        dotDims.batch_lhs,
+        dotDims.batch_rhs
+      )
     );
     const executable = xlaClient.compile(computation, {});
     const results = executable.execute([[lhs.#ensureBuffer(), rhs.#ensureBuffer()]], {});
@@ -197,7 +197,12 @@ export class Tensor {
   static matmul(lhs: Tensor, rhs: Tensor) {
     const rank = lhs.shape().rank();
     const batch = new Array(rank).fill(0).map((e, i) => i);
-    return Tensor.dotGeneral(lhs, rhs, [rank - 1], [rank - 2], batch, batch);
+    return Tensor.dotGeneral(lhs, rhs, {
+      contracting_lhs: [rank - 1],
+      contracting_rhs: [rank - 2],
+      batch_lhs: batch,
+      batch_rhs: batch,
+    });
   }
 
   static arange(shape: Shape, dimension: number) {

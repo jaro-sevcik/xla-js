@@ -9,24 +9,24 @@ function testfn<T extends Shaped>(trace: Trace<T>, x: T): T[] {
 
 describe("Trace", () => {
   const trace = new EvalTrace();
-  const const3 = Tensor.constantR0(3.0);
-  const vec2 = Tensor.literal([3, 4]);
 
   test("can evaluate a scalar mul-add expression", () => {
-    expect(testfn(trace, const3)[0].data()).toStrictEqual([27]);
+    expect(testfn(trace, Tensor.literal(3))[0].data()).toStrictEqual([27]);
   });
 
   test("can compute gradient of a scalar expression", () => {
     const grad_testfn = grad(testfn);
-    expect(grad_testfn(trace, const3)[0].data()).toStrictEqual([10]);
+    expect(grad_testfn(trace, Tensor.literal(3))[0].data()).toStrictEqual([10]);
   });
 
   test("can compute second gradient of a scalar expression", () => {
     const grad_testfn = grad(grad(testfn));
-    expect(grad_testfn(trace, const3)[0].data()).toStrictEqual([2]);
+    expect(grad_testfn(trace, Tensor.literal(3))[0].data()).toStrictEqual([2]);
   });
 
   test("can evaluate vector-add expression", () => {
+    const vec2 = Tensor.literal([3, 4]);
+
     function add<T extends Shaped>(t: Trace<T>, x: T): T[] {
       return [t.add(t.literal([1, 2]), x)];
     }
@@ -42,7 +42,7 @@ describe("Trace", () => {
             [1, 2, 3],
             [4, 5, 6],
           ]),
-          x,
+          x
         ),
       ];
     }
@@ -61,17 +61,17 @@ describe("Trace", () => {
   test("can compute sum via dot-product", () => {
     function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
       const ones = t.constant(Tensor.ones(x.shape()));
-      return [t.dotGeneral(x, ones, [0], [0], [], [])];
+      return [t.dotGeneral(x, ones, { contracting_lhs: [0], contracting_rhs: [0], batch_lhs: [], batch_rhs: [] })];
     }
 
     const x = Tensor.literal([1, 2, 3, 4]);
     expect(sum(trace, x)[0].toLiteral()).toStrictEqual(10);
   });
 
-  test.skip("can compute gradient of sum via dot-product", () => {
+  test("can compute gradient of sum via dot-product", () => {
     function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
       const ones = t.constant(Tensor.ones(x.shape()));
-      return [t.dotGeneral(x, ones, [0], [0], [], [])];
+      return [t.dotGeneral(x, ones, { contracting_lhs: [0], contracting_rhs: [0], batch_lhs: [], batch_rhs: [] })];
     }
 
     const grad_sum = grad(sum);
