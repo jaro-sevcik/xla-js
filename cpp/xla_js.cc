@@ -1,4 +1,4 @@
-#include <xla_js.h>
+#include "xla_js.h"
 #include <sstream>
 #include <tuple>
 #include <vector>
@@ -75,24 +75,112 @@ std::vector<int64_t> int64ArrayFromNapiArray(Napi::Env env, Napi::Array array) {
   return dims;
 }
 
-template<typename H, typename T>
-struct TupleCons;
+template <typename H, typename T> struct TupleCons;
 
-template<typename H, typename ...Ts>
-struct TupleCons<H, std::tuple<Ts...>> {
-    using type = std::tuple<H, Ts...>;
+template <typename H, typename... Ts> struct TupleCons<H, std::tuple<Ts...>> {
+  using type = std::tuple<H, Ts...>;
 };
 
-template<typename T>
-struct ElementConverter;
+template <typename T> struct ElementConverter;
 
-template<>
-struct ElementConverter<int> {
-    using Result = int;
+template <> struct ElementConverter<int32_t> {
+  using Result = int32_t;
 
-    static Result convert(Napi::Env env, Napi::Value value) {
-        return value.As<Napi::Number>().Int32Value();
-    }
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return value.As<Napi::Number>().Int32Value();
+  }
+};
+
+template <> struct ElementConverter<int64_t> {
+  using Result = int64_t;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return value.As<Napi::Number>().Int64Value();
+  }
+};
+
+template <> struct ElementConverter<std::string> {
+  using Result = std::string;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return value.As<Napi::String>().Utf8Value();
+  }
+};
+
+template <> struct ElementConverter<std::vector<int64_t>> {
+  using Result = std::vector<int64_t>;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return int64ArrayFromNapiArray(env, value.As<Napi::Array>());
+  }
+};
+
+template <> struct ElementConverter<xla::XlaBuilder *> {
+  using Result = xla::XlaBuilder *;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return XlaBuilderWrapper::FromValue(env, value);
+  }
+};
+
+template <> struct ElementConverter<xla::XlaOp *> {
+  using Result = xla::XlaOp *;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return XlaOpWrapper::FromValue(env, value);
+  }
+};
+
+template <> struct ElementConverter<xla::PjRtBuffer *> {
+  using Result = xla::PjRtBuffer *;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return PjRtBufferWrapper::FromValue(env, value);
+  }
+};
+
+template <> struct ElementConverter<xla::Shape *> {
+  using Result = xla::Shape *;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return ShapeWrapper::FromValue(env, value);
+  }
+};
+
+template <> struct ElementConverter<xla::XlaComputation *> {
+  using Result = xla::XlaComputation *;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return XlaComputationWrapper::FromValue(env, value);
+  }
+};
+
+template <> struct ElementConverter<xla::Literal *> {
+  using Result = xla::Literal *;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+    return LiteralWrapper::FromValue(env, value);
+  }
 };
 
 // template<>
@@ -106,43 +194,43 @@ struct ElementConverter<int> {
 //     }
 // };
 
-template<size_t index, typename ...Ts>
-class ListConverter;
+template <size_t index, typename... Ts> class ListConverter;
 
-template<size_t index>
-class ListConverter<index> {
-public: 
-    using Result = std::tuple<>;
+template <size_t index> class ListConverter<index> {
+public:
+  using Result = std::tuple<>;
 
-    static Result convert(const Napi::CallbackInfo &info) {
-        return std::make_tuple();
-    }
+  static Result convert(const Napi::CallbackInfo &info) {
+    return std::make_tuple();
+  }
 };
 
-template<size_t index, typename T, typename ...Rest>
+template <size_t index, typename T, typename... Rest>
 class ListConverter<index, T, Rest...> {
 public:
-    using Conv = ElementConverter<T>;
-    using RestConv = ListConverter<index + 1, Rest...>;
-    using Result = typename TupleCons<typename Conv::Result, typename RestConv::Result>::type;
+  using Conv = ElementConverter<T>;
+  using RestConv = ListConverter<index + 1, Rest...>;
+  using Result = typename TupleCons<typename Conv::Result,
+                                    typename RestConv::Result>::type;
 
-    static Result convert(const Napi::CallbackInfo &info) {
-        Napi::Env env = info.Env();
-        typename Conv::Result r = Conv::convert(env, info[index]);
-        return std::tuple_cat(std::make_tuple(r), RestConv::convert(env, info));
-    }
+  static Result convert(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    typename Conv::Result r = Conv::convert(env, info[index]);
+    return std::tuple_cat(std::make_tuple(r), RestConv::convert(info));
+  }
 };
 
-template<typename ...Ts>
-typename ListConverter<0, Ts...>::Result match(const Napi::CallbackInfo &info) {
-    if (sizeof...(Ts) != info.Length()) {
-        Napi::Env env = info.Env();
-        std::string msg = absl::StrFormat(
-          "The matcher size %zi does not match the vetcor size %zi", sizeof...(Ts), info.Length());
-        Napi::Error::New(env, msg.c_str()).ThrowAsJavaScriptException();
-        return env.Null();
-    }
-    return ListConverter<0, Ts...>::convert(info);
+template <typename... Ts>
+typename ListConverter<0, Ts...>::Result match(const Napi::CallbackInfo &info,
+                                               const char *name) {
+  if (sizeof...(Ts) != info.Length()) {
+    Napi::Env env = info.Env();
+    std::string msg = absl::StrFormat(
+        "Method %s takes %zi arguments, instead received %zi arguments.", name,
+        sizeof...(Ts), info.Length());
+    Napi::Error::New(env, msg.c_str()).ThrowAsJavaScriptException();
+  }
+  return ListConverter<0, Ts...>::convert(info);
 }
 
 } // namespace
@@ -445,21 +533,9 @@ Napi::Value LiteralWrapper::GetFirstElementF32(const Napi::CallbackInfo &info) {
 Napi::Value LiteralWrapper::Get(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
 
-  if (info.Length() != 1 || !info[0].IsArray()) {
-    Napi::Error::New(env,
-                     "Literal.get requires an array of indices as the argument")
-        .ThrowAsJavaScriptException();
+  auto [indices] = match<std::vector<int64_t>>(info, "Literal.get");
+  if (env.IsExceptionPending())
     return env.Null();
-  }
-
-  if (!value()->shape().IsArray()) {
-    Napi::Error::New(env, "Get is only supported for arrays")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  std::vector<int64_t> indices =
-      int64ArrayFromNapiArray(env, info[0].As<Napi::Array>());
 
   if (value()->shape().rank() != indices.size()) {
     Napi::Error::New(env, "index length does not match dimensions")
@@ -535,14 +611,9 @@ Napi::Value LiteralWrapper::Shape(const Napi::CallbackInfo &info) {
 
 Napi::Value LiteralWrapper::Reshape(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Reshape requires an array of dimensions as the argument";
-  if (info.Length() != 1 || !info[0].IsArray()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+  auto [dims] = match<std::vector<int64_t>>(info, "Literal.reshape");
+  if (env.IsExceptionPending())
     return env.Null();
-  }
-
-  std::vector<int64_t> dims =
-      int64ArrayFromNapiArray(env, info[0].As<Napi::Array>());
 
   ASSIGN_OR_THROW(reshaped, value()->Reshape(absl::Span<const int64_t>(
                                 dims.data(), dims.size())));
@@ -552,20 +623,13 @@ Napi::Value LiteralWrapper::Reshape(const Napi::CallbackInfo &info) {
 
 Napi::Value LiteralWrapper::Broadcast(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Broadcast requires an array of dimensions as the argument";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+  auto [shape, dims] =
+      match<xla::Shape *, std::vector<int64_t>>(info, "Literal.broadcast");
+  if (env.IsExceptionPending())
     return env.Null();
-  }
-
-  auto shape = ShapeWrapper::FromValue(env, info[0]);
-  std::vector<int64_t> dims =
-      int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
-
   ASSIGN_OR_THROW(broadcasted,
                   value()->Broadcast(*shape, absl::Span<const int64_t>(
                                                  dims.data(), dims.size())));
-
   return LiteralWrapper::Create(env, new xla::Literal(std::move(broadcasted)));
 }
 
@@ -770,13 +834,7 @@ Napi::Object XlaBuilderWrapper::Init(Napi::Env env, Napi::Object exports) {
 
 Napi::Value XlaBuilderWrapper::Build(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  if (info.Length() != 1) {
-    Napi::Error::New(env,
-                     "XlaBuilder.build expects XlaOp as its single argument")
-        .ThrowAsJavaScriptException();
-    return env.Null();
-  }
-  xla::XlaOp *op = XlaOpWrapper::FromValue(env, info[0]);
+  auto [op] = match<xla::XlaOp *>(info, "XlaBuilder.build");
   if (env.IsExceptionPending())
     return env.Null();
 
@@ -790,22 +848,11 @@ namespace {
 
 Napi::Value Parameter(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Parameter function expects a parameter number, a shape "
-                    "and a name as its arguments.";
-  if (info.Length() != 4 || !info[0].IsObject() || !info[1].IsNumber() ||
-      !info[2].IsObject() || !info[3].IsString()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+  auto [builder, parameter_number, shape, name] =
+      match<xla::XlaBuilder *, int32_t, xla::Shape *, std::string>(info,
+                                                                   "parameter");
+  if (env.IsExceptionPending())
     return env.Null();
-  }
-
-  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
-  if (!builder)
-    return env.Null();
-
-  int32_t parameter_number = info[1].As<Napi::Number>().Int64Value();
-  xla::Shape *shape = ShapeWrapper::FromValue(env, info[2]);
-  std::string name = info[3].As<Napi::String>().Utf8Value();
-
   xla::XlaOp *op =
       new xla::XlaOp(xla::Parameter(builder, parameter_number, *shape, name));
   return XlaOpWrapper::Create(env, op);
@@ -877,35 +924,17 @@ Napi::Value ConstantR1(const Napi::CallbackInfo &info) {
 
 Napi::Value ConstantLiteral(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "ConstantLiteral expects a builder and a literal";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
+  auto [builder, literal] =
+      match<xla::XlaBuilder *, xla::Literal *>(info, "constantLiteral");
+  if (env.IsExceptionPending())
     return env.Null();
-  }
-
-  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
-  if (!builder)
-    return env.Null();
-
-  auto literal = LiteralWrapper::FromValue(env, info[1]);
-
   auto op = new xla::XlaOp(xla::ConstantLiteral(builder, *literal));
-
   return XlaOpWrapper::Create(env, op);
 }
 
 Napi::Value Add(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Add function requires two XlaOp arguments";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto lhs = XlaOpWrapper::FromValue(env, info[0]);
-  if (env.IsExceptionPending())
-    return env.Null();
-  auto rhs = XlaOpWrapper::FromValue(env, info[1]);
+  auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "add");
   if (env.IsExceptionPending())
     return env.Null();
   xla::XlaOp *op = new xla::XlaOp(xla::Add(*lhs, *rhs));
@@ -914,16 +943,7 @@ Napi::Value Add(const Napi::CallbackInfo &info) {
 
 Napi::Value Mul(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Mul function requires two XlaOp arguments";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsObject()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto lhs = XlaOpWrapper::FromValue(env, info[0]);
-  if (env.IsExceptionPending())
-    return env.Null();
-  auto rhs = XlaOpWrapper::FromValue(env, info[1]);
+  auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "mul");
   if (env.IsExceptionPending())
     return env.Null();
   xla::XlaOp *op = new xla::XlaOp(xla::Mul(*lhs, *rhs));
@@ -932,30 +952,13 @@ Napi::Value Mul(const Napi::CallbackInfo &info) {
 
 Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg =
-      "DotGeneral function requires two XlaOp arguments, two lists of "
-      "contracting dimensions and two lists of batch dimensions";
-  if (info.Length() != 6 || !info[0].IsObject() || !info[1].IsObject() ||
-      !info[2].IsArray() || !info[3].IsArray() || !info[4].IsArray() ||
-      !info[5].IsArray()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto lhs = XlaOpWrapper::FromValue(env, info[0]);
+  auto [lhs, rhs, lhs_contracting_dims, rhs_contracting_dims, lhs_batch_dims,
+        rhs_batch_dims] =
+      match<xla::XlaOp *, xla::XlaOp *, std::vector<int64_t>,
+            std::vector<int64_t>, std::vector<int64_t>, std::vector<int64_t>>(
+          info, "dotGeneral");
   if (env.IsExceptionPending())
     return env.Null();
-  auto rhs = XlaOpWrapper::FromValue(env, info[1]);
-  if (env.IsExceptionPending())
-    return env.Null();
-  std::vector<int64_t> lhs_contracting_dims =
-      int64ArrayFromNapiArray(env, info[2].As<Napi::Array>());
-  std::vector<int64_t> rhs_contracting_dims =
-      int64ArrayFromNapiArray(env, info[3].As<Napi::Array>());
-  std::vector<int64_t> lhs_batch_dims =
-      int64ArrayFromNapiArray(env, info[4].As<Napi::Array>());
-  std::vector<int64_t> rhs_batch_dims =
-      int64ArrayFromNapiArray(env, info[5].As<Napi::Array>());
 
   xla::DotDimensionNumbers dnums;
   for (int64_t i : lhs_contracting_dims)
@@ -973,19 +976,10 @@ Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
 
 Napi::Value Broadcast(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg = "Broadcast function requires a XlaOp argument and a list "
-                    "of dimension sizes";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto input = XlaOpWrapper::FromValue(env, info[0]);
+  auto [input, dims] =
+      match<xla::XlaOp *, std::vector<int64_t>>(info, "broadcast");
   if (env.IsExceptionPending())
     return env.Null();
-  std::vector<int64_t> dims =
-      int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
-
   xla::XlaOp *op = new xla::XlaOp(xla::Broadcast(
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
   return XlaOpWrapper::Create(env, op);
@@ -993,19 +987,10 @@ Napi::Value Broadcast(const Napi::CallbackInfo &info) {
 
 Napi::Value Transpose(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg =
-      "Transpose function requires a XlaOp argument and a permutation list";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto input = XlaOpWrapper::FromValue(env, info[0]);
+  auto [input, dims] =
+      match<xla::XlaOp *, std::vector<int64_t>>(info, "transpose");
   if (env.IsExceptionPending())
     return env.Null();
-  std::vector<int64_t> dims =
-      int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
-
   xla::XlaOp *op = new xla::XlaOp(xla::Transpose(
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
   return XlaOpWrapper::Create(env, op);
@@ -1013,19 +998,10 @@ Napi::Value Transpose(const Napi::CallbackInfo &info) {
 
 Napi::Value Reshape(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg =
-      "Reshape function requires a XlaOp argument and a list of new sizes";
-  if (info.Length() != 2 || !info[0].IsObject() || !info[1].IsArray()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto input = XlaOpWrapper::FromValue(env, info[0]);
+  auto [input, dims] =
+      match<xla::XlaOp *, std::vector<int64_t>>(info, "reshape");
   if (env.IsExceptionPending())
     return env.Null();
-  std::vector<int64_t> dims =
-      int64ArrayFromNapiArray(env, info[1].As<Napi::Array>());
-
   xla::XlaOp *op = new xla::XlaOp(xla::Reshape(
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
   return XlaOpWrapper::Create(env, op);
@@ -1033,20 +1009,10 @@ Napi::Value Reshape(const Napi::CallbackInfo &info) {
 
 Napi::Value Iota(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  const char *msg =
-      "iota function requires an XlaBuilder argument, a shape and a dimension";
-  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsObject() ||
-      !info[2].IsNumber()) {
-    Napi::Error::New(env, msg).ThrowAsJavaScriptException();
-    return env.Null();
-  }
-
-  auto builder = XlaBuilderWrapper::FromValue(env, info[0]);
-  auto shape = ShapeWrapper::FromValue(env, info[1]);
-  auto index = info[0].As<Napi::Number>().Int64Value();
+  auto [builder, shape, index] =
+      match<xla::XlaBuilder *, xla::Shape *, int64_t>(info, "iota");
   if (env.IsExceptionPending())
     return env.Null();
-
   xla::XlaOp *op = new xla::XlaOp(xla::Iota(builder, *shape, index));
   return XlaOpWrapper::Create(env, op);
 }

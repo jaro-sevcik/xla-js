@@ -4,6 +4,12 @@ import * as tensor from "./tensor";
 const client = new xla.Client();
 
 {
+  const i = xla.Literal.createR1(xla.PrimitiveType.F32, [1, 2]);
+  const x = i.reshape([2, 1]);
+  console.log(x.toString());
+}
+
+{
   // Build the computation.
   const b = new xla.XlaBuilder("fn");
   const shape = xla.Shape.forArray(xla.PrimitiveType.F32, []);
@@ -44,3 +50,4 @@ const client = new xla.Client();
   console.log("Data: ", literal.data(xla.PrimitiveType.F32));
   console.log("Shape: ", literal.shape().dimensions());
 }
+
