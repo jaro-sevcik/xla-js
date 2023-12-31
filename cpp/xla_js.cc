@@ -1,4 +1,7 @@
 #include <xla_js.h>
+#include <sstream>
+#include <tuple>
+#include <vector>
 
 #define CONCAT(a, b) a##b
 
@@ -70,6 +73,76 @@ std::vector<int64_t> int64ArrayFromNapiArray(Napi::Env env, Napi::Array array) {
       return {};
   }
   return dims;
+}
+
+template<typename H, typename T>
+struct TupleCons;
+
+template<typename H, typename ...Ts>
+struct TupleCons<H, std::tuple<Ts...>> {
+    using type = std::tuple<H, Ts...>;
+};
+
+template<typename T>
+struct ElementConverter;
+
+template<>
+struct ElementConverter<int> {
+    using Result = int;
+
+    static Result convert(Napi::Env env, Napi::Value value) {
+        return value.As<Napi::Number>().Int32Value();
+    }
+};
+
+// template<>
+// struct ElementConverter<double> {
+//     using Result = std::string;
+
+//     static Result convert(int p) {
+//         std::ostringstream ss;
+//         ss << "Ha, double (" << p << ")";
+//         return ss.str();
+//     }
+// };
+
+template<size_t index, typename ...Ts>
+class ListConverter;
+
+template<size_t index>
+class ListConverter<index> {
+public: 
+    using Result = std::tuple<>;
+
+    static Result convert(const Napi::CallbackInfo &info) {
+        return std::make_tuple();
+    }
+};
+
+template<size_t index, typename T, typename ...Rest>
+class ListConverter<index, T, Rest...> {
+public:
+    using Conv = ElementConverter<T>;
+    using RestConv = ListConverter<index + 1, Rest...>;
+    using Result = typename TupleCons<typename Conv::Result, typename RestConv::Result>::type;
+
+    static Result convert(const Napi::CallbackInfo &info) {
+        Napi::Env env = info.Env();
+        typename Conv::Result r = Conv::convert(env, info[index]);
+        return std::tuple_cat(std::make_tuple(r), RestConv::convert(env, info));
+    }
+};
+
+template<typename ...Ts>
+typename ListConverter<0, Ts...>::Result match(const Napi::CallbackInfo &info) {
+    if (sizeof...(Ts) != info.Length()) {
+        Napi::Env env = info.Env();
+        std::string msg = absl::StrFormat(
+          "The matcher size %zi does not match the vetcor size %zi", sizeof...(Ts), info.Length());
+        Napi::Error::New(env, msg.c_str()).ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    return ListConverter<0, Ts...>::convert(info);
 }
 
 } // namespace
