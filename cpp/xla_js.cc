@@ -123,6 +123,33 @@ template <> struct ElementConverter<std::vector<int64_t>> {
   }
 };
 
+template <> struct ElementConverter<std::vector<xla::XlaOp>> {
+  using Result = std::vector<xla::XlaOp>;
+
+  static Result convert(Napi::Env env, Napi::Value value) {
+    if (env.IsExceptionPending())
+      return {};
+
+    Result result;
+
+    if (value.IsArray()) {
+      Napi::Array array = value.As<Napi::Array>();
+      for (size_t i = 0; i < array.Length(); i++) {
+        Napi::Value e = array[i];
+        result.push_back(xla::XlaOp(*XlaOpWrapper::FromValue(env, e)));
+        if (env.IsExceptionPending())
+          return {};
+      }
+    } else {
+      result.push_back(xla::XlaOp(*XlaOpWrapper::FromValue(env, value)));
+      if (env.IsExceptionPending())
+        return {};
+    }
+
+    return result;
+  }
+};
+
 template <> struct ElementConverter<xla::XlaBuilder *> {
   using Result = xla::XlaBuilder *;
 
@@ -941,12 +968,39 @@ Napi::Value Add(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+Napi::Value Sub(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "sub");
+  if (env.IsExceptionPending())
+    return env.Null();
+  xla::XlaOp *op = new xla::XlaOp(xla::Sub(*lhs, *rhs));
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value Max(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "max");
+  if (env.IsExceptionPending())
+    return env.Null();
+  xla::XlaOp *op = new xla::XlaOp(xla::Max(*lhs, *rhs));
+  return XlaOpWrapper::Create(env, op);
+}
+
 Napi::Value Mul(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "mul");
   if (env.IsExceptionPending())
     return env.Null();
   xla::XlaOp *op = new xla::XlaOp(xla::Mul(*lhs, *rhs));
+  return XlaOpWrapper::Create(env, op);
+}
+
+Napi::Value Div(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "div");
+  if (env.IsExceptionPending())
+    return env.Null();
+  xla::XlaOp *op = new xla::XlaOp(xla::Div(*lhs, *rhs));
   return XlaOpWrapper::Create(env, op);
 }
 
@@ -1017,6 +1071,30 @@ Napi::Value Iota(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+Napi::Value Reduce(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  auto [builder, operands, init_values, computation, dimensions_to_reduce] =
+      match<xla::XlaBuilder *, std::vector<xla::XlaOp>, std::vector<xla::XlaOp>,
+            xla::XlaComputation *, std::vector<int64_t>>(info, "reduce");
+  if (env.IsExceptionPending())
+    return env.Null();
+
+  if (operands.size() != init_values.size()) {
+    Napi::Error::New(env, "reduce: thenumber of operands must be the same as "
+                          "the number of init_values")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  xla::XlaOp *op = new xla::XlaOp(xla::Reduce(
+      builder, absl::Span<const xla::XlaOp>(operands.data(), operands.size()),
+      absl::Span<const xla::XlaOp>(init_values.data(), init_values.size()),
+      *computation,
+      absl::Span<const int64_t>(dimensions_to_reduce.data(),
+                                dimensions_to_reduce.size())));
+  return XlaOpWrapper::Create(env, op);
+}
+
 } // namespace
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -1040,7 +1118,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set(Napi::String::New(env, "parameter"),
               Napi::Function::New<Parameter>(env));
   exports.Set(Napi::String::New(env, "add"), Napi::Function::New<Add>(env));
+  exports.Set(Napi::String::New(env, "max"), Napi::Function::New<Max>(env));
+  exports.Set(Napi::String::New(env, "sub"), Napi::Function::New<Sub>(env));
   exports.Set(Napi::String::New(env, "mul"), Napi::Function::New<Mul>(env));
+  exports.Set(Napi::String::New(env, "div"), Napi::Function::New<Div>(env));
   exports.Set(Napi::String::New(env, "dotGeneral"),
               Napi::Function::New<DotGeneral>(env));
   exports.Set(Napi::String::New(env, "broadcast"),
@@ -1050,6 +1131,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set(Napi::String::New(env, "reshape"),
               Napi::Function::New<Reshape>(env));
   exports.Set(Napi::String::New(env, "iota"), Napi::Function::New<Iota>(env));
+  exports.Set(Napi::String::New(env, "reduce"),
+              Napi::Function::New<Reduce>(env));
 
   return exports;
 }

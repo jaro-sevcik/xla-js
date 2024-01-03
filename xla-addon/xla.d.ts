@@ -48,7 +48,10 @@ export function constantR0(builder: XlaBuilder, ptype: PrimitiveType, n: number)
 export function constantR1(builder: XlaBuilder, ptype: PrimitiveType, ns: number[]): XlaOp;
 export function parameter(builder: XlaBuilder, parameter_number: number, shape: Shape, name: string): XlaOp;
 export function add(lhs: XlaOp, rhs: XlaOp): XlaOp;
+export function sub(lhs: XlaOp, rhs: XlaOp): XlaOp;
+export function max(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function mul(lhs: XlaOp, rhs: XlaOp): XlaOp;
+export function div(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function dotGeneral(
   lhs: XlaOp,
   rhs: XlaOp,
@@ -61,5 +64,12 @@ export function broadcast(input: XlaOp, dims: number[]): XlaOp;
 export function transpose(input: XlaOp, permutation: number[]): XlaOp;
 export function reshape(input: XlaOp, new_sizes: number[]): XlaOp;
 export function iota(builder: XlaBuilder, shape: Shape, dimension: number): XlaOp;
+export function reduce(
+  builder: XlaBuilder,
+  operands: XlaOp | xlaOp[],
+  init_values: XlaOp | XlaOp[],
+  computation: XlaComputation,
+  dimensions_to_reduce: number[]
+): XlaOp;
 
 export function constantLiteral(builder: XlaBuilder, literal: Literal): XlaOp;
