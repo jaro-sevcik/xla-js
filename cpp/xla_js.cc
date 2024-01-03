@@ -210,17 +210,6 @@ template <> struct ElementConverter<xla::Literal *> {
   }
 };
 
-// template<>
-// struct ElementConverter<double> {
-//     using Result = std::string;
-
-//     static Result convert(int p) {
-//         std::ostringstream ss;
-//         ss << "Ha, double (" << p << ")";
-//         return ss.str();
-//     }
-// };
-
 template <size_t index, typename... Ts> class ListConverter;
 
 template <size_t index> class ListConverter<index> {
@@ -871,19 +860,9 @@ Napi::Value XlaBuilderWrapper::Build(const Napi::CallbackInfo &info) {
       env, new xla::XlaComputation(std::move(computation_instance)));
 }
 
-namespace {
+// Global functions (mostly for creating XlaOps).
 
-Napi::Value Parameter(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
-  auto [builder, parameter_number, shape, name] =
-      match<xla::XlaBuilder *, int32_t, xla::Shape *, std::string>(info,
-                                                                   "parameter");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op =
-      new xla::XlaOp(xla::Parameter(builder, parameter_number, *shape, name));
-  return XlaOpWrapper::Create(env, op);
-}
+namespace {
 
 Napi::Value ConstantR0(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
@@ -957,6 +936,13 @@ Napi::Value ConstantR1(const Napi::CallbackInfo &info) {
     xla::XlaOp *tmp_op = new xla::XlaOp(computation);                          \
     return XlaOpWrapper::Create(tmp_env, tmp_op);                              \
   } while (0)
+
+Napi::Value Parameter(const Napi::CallbackInfo &info) {
+  auto [builder, parameter_number, shape, name] =
+      match<xla::XlaBuilder *, int32_t, xla::Shape *, std::string>(info,
+                                                                   "parameter");
+  RETURN_OP(xla::Parameter(builder, parameter_number, *shape, name));
+}
 
 Napi::Value ConstantLiteral(const Napi::CallbackInfo &info) {
   auto [builder, literal] =
