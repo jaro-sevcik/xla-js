@@ -949,59 +949,44 @@ Napi::Value ConstantR1(const Napi::CallbackInfo &info) {
   return XlaOpWrapper::Create(env, op);
 }
 
+#define RETURN_OP(computation)                                                 \
+  do {                                                                         \
+    Napi::Env tmp_env = info.Env();                                            \
+    if (tmp_env.IsExceptionPending())                                          \
+      return tmp_env.Null();                                                   \
+    xla::XlaOp *tmp_op = new xla::XlaOp(computation);                          \
+    return XlaOpWrapper::Create(tmp_env, tmp_op);                              \
+  } while (0)
+
 Napi::Value ConstantLiteral(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [builder, literal] =
       match<xla::XlaBuilder *, xla::Literal *>(info, "constantLiteral");
-  if (env.IsExceptionPending())
-    return env.Null();
-  auto op = new xla::XlaOp(xla::ConstantLiteral(builder, *literal));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::ConstantLiteral(builder, *literal));
 }
 
 Napi::Value Add(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "add");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Add(*lhs, *rhs));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Add(*lhs, *rhs));
 }
 
 Napi::Value Sub(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "sub");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Sub(*lhs, *rhs));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Sub(*lhs, *rhs));
 }
 
 Napi::Value Max(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "max");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Max(*lhs, *rhs));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Max(*lhs, *rhs));
 }
 
 Napi::Value Mul(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "mul");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Mul(*lhs, *rhs));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Mul(*lhs, *rhs));
 }
 
 Napi::Value Div(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [lhs, rhs] = match<xla::XlaOp *, xla::XlaOp *>(info, "div");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Div(*lhs, *rhs));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Div(*lhs, *rhs));
 }
 
 Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
@@ -1024,51 +1009,34 @@ Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
   for (int64_t i : rhs_batch_dims)
     dnums.add_rhs_batch_dimensions(i);
 
-  xla::XlaOp *op = new xla::XlaOp(xla::DotGeneral(*lhs, *rhs, dnums));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::DotGeneral(*lhs, *rhs, dnums));
 }
 
 Napi::Value Broadcast(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [input, dims] =
       match<xla::XlaOp *, std::vector<int64_t>>(info, "broadcast");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Broadcast(
+  RETURN_OP(xla::Broadcast(
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
-  return XlaOpWrapper::Create(env, op);
 }
 
 Napi::Value Transpose(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [input, dims] =
       match<xla::XlaOp *, std::vector<int64_t>>(info, "transpose");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Transpose(
+  RETURN_OP(xla::Transpose(
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
-  return XlaOpWrapper::Create(env, op);
 }
 
 Napi::Value Reshape(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [input, dims] =
       match<xla::XlaOp *, std::vector<int64_t>>(info, "reshape");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Reshape(
-      *input, absl::Span<const int64_t>(dims.data(), dims.size())));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Reshape(*input,
+                         absl::Span<const int64_t>(dims.data(), dims.size())));
 }
 
 Napi::Value Iota(const Napi::CallbackInfo &info) {
-  Napi::Env env = info.Env();
   auto [builder, shape, index] =
       match<xla::XlaBuilder *, xla::Shape *, int64_t>(info, "iota");
-  if (env.IsExceptionPending())
-    return env.Null();
-  xla::XlaOp *op = new xla::XlaOp(xla::Iota(builder, *shape, index));
-  return XlaOpWrapper::Create(env, op);
+  RETURN_OP(xla::Iota(builder, *shape, index));
 }
 
 Napi::Value Reduce(const Napi::CallbackInfo &info) {
@@ -1076,23 +1044,19 @@ Napi::Value Reduce(const Napi::CallbackInfo &info) {
   auto [builder, operands, init_values, computation, dimensions_to_reduce] =
       match<xla::XlaBuilder *, std::vector<xla::XlaOp>, std::vector<xla::XlaOp>,
             xla::XlaComputation *, std::vector<int64_t>>(info, "reduce");
-  if (env.IsExceptionPending())
-    return env.Null();
 
-  if (operands.size() != init_values.size()) {
+  if (!env.IsExceptionPending() && operands.size() != init_values.size()) {
     Napi::Error::New(env, "reduce: thenumber of operands must be the same as "
                           "the number of init_values")
         .ThrowAsJavaScriptException();
-    return env.Null();
   }
 
-  xla::XlaOp *op = new xla::XlaOp(xla::Reduce(
+  RETURN_OP(xla::Reduce(
       builder, absl::Span<const xla::XlaOp>(operands.data(), operands.size()),
       absl::Span<const xla::XlaOp>(init_values.data(), init_values.size()),
       *computation,
       absl::Span<const int64_t>(dimensions_to_reduce.data(),
                                 dimensions_to_reduce.size())));
-  return XlaOpWrapper::Create(env, op);
 }
 
 } // namespace
