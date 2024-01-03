@@ -106,6 +106,27 @@ describe("XLA client", () => {
     expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([58, 64, 139, 154]);
   });
 
+  test("can broadcast in dimensions", () => {
+    const builder = new xla.XlaBuilder("fn");
+    const matrix2x3_shape = xla.Shape.forArray(xla.PrimitiveType.F32, [2, 3]);
+    const parameter1 = xla.parameter(builder, 0, matrix2x3_shape, "x");
+    const computation = builder.build(xla.broadcastInDim(parameter1, [2, 2, 3], [0, 2]));
+
+    // Compile the computation.
+    const loaded_executable = client.compile(computation, {});
+
+    // Execute the computation.
+    const argument1_literal = xla.Literal.createR1(xla.PrimitiveType.F32, [1, 2, 3, 4, 5, 6]).reshape([2, 3]);
+    const results = loaded_executable.execute([[client.bufferFromHostLiteral(argument1_literal)]], {});
+
+    // Extract the resulting scalar.
+    const result_buffer = results[0][0];
+    const result_literal = result_buffer.toLiteralSync();
+
+    expect(result_literal.shape().dimensions()).toStrictEqual([2, 2, 3]);
+    expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6]);
+  });
+
   test("can compute sum along axis", () => {
     const add_builder = new xla.XlaBuilder("scalar_add");
     const scalar_shape = xla.Shape.forArray(xla.PrimitiveType.F32, []);

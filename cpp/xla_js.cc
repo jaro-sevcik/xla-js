@@ -1005,6 +1005,15 @@ Napi::Value Broadcast(const Napi::CallbackInfo &info) {
       *input, absl::Span<const int64_t>(dims.data(), dims.size())));
 }
 
+Napi::Value BroadcastInDim(const Napi::CallbackInfo &info) {
+  auto [input, sizes, broadcast_dims] =
+      match<xla::XlaOp *, std::vector<int64_t>, std::vector<int64_t>>(
+          info, "broadcastInDim");
+  RETURN_OP(xla::BroadcastInDim(
+      *input, absl::Span<const int64_t>(sizes.data(), sizes.size()),
+      absl::Span<const int64_t>(broadcast_dims.data(), broadcast_dims.size())));
+}
+
 Napi::Value Transpose(const Napi::CallbackInfo &info) {
   auto [input, dims] =
       match<xla::XlaOp *, std::vector<int64_t>>(info, "transpose");
@@ -1076,6 +1085,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New<DotGeneral>(env));
   exports.Set(Napi::String::New(env, "broadcast"),
               Napi::Function::New<Broadcast>(env));
+  exports.Set(Napi::String::New(env, "broadcastInDim"),
+              Napi::Function::New<BroadcastInDim>(env));
   exports.Set(Napi::String::New(env, "transpose"),
               Napi::Function::New<Transpose>(env));
   exports.Set(Napi::String::New(env, "reshape"),

@@ -60,7 +60,8 @@ export function dotGeneral(
   lhs_batch_dimensions: number[],
   rhs_batch_dimensions: number[]
 ): XlaOp;
-export function broadcast(input: XlaOp, dims: number[]): XlaOp;
+export function broadcast(input: XlaOp, sizes: number[]): XlaOp;
+export function broadcastInDim(input: XlaOp, sizes: number[], broadcast_dimensions: number[]): XlaOp;
 export function transpose(input: XlaOp, permutation: number[]): XlaOp;
 export function reshape(input: XlaOp, new_sizes: number[]): XlaOp;
 export function iota(builder: XlaBuilder, shape: Shape, dimension: number): XlaOp;
