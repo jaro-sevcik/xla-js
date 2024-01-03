@@ -127,6 +127,50 @@ describe("XLA client", () => {
     expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([1, 2, 3, 1, 2, 3, 4, 5, 6, 4, 5, 6]);
   });
 
+  test("can compute exp", () => {
+    const builder = new xla.XlaBuilder("fn");
+    const vec2_shape = xla.Shape.forArray(xla.PrimitiveType.F32, [2]);
+    const parameter1 = xla.parameter(builder, 0, vec2_shape, "x");
+    const computation = builder.build(xla.exp(parameter1));
+
+    // Compile the computation.
+    const loaded_executable = client.compile(computation, {});
+
+    // Execute the computation.
+    const argument1_literal = xla.Literal.createR1(xla.PrimitiveType.F32, [1, 2]);
+    const results = loaded_executable.execute([[client.bufferFromHostLiteral(argument1_literal)]], {});
+
+    // Extract the resulting scalar.
+    const result_buffer = results[0][0];
+    const result_literal = result_buffer.toLiteralSync();
+
+    expect(result_literal.shape().dimensions()).toStrictEqual([2]);
+    expect(result_literal.data(xla.PrimitiveType.F32)[0]).toBeCloseTo(2.72);
+    expect(result_literal.data(xla.PrimitiveType.F32)[1]).toBeCloseTo(7.39);
+  });
+
+  test("can compute log", () => {
+    const builder = new xla.XlaBuilder("fn");
+    const vec2_shape = xla.Shape.forArray(xla.PrimitiveType.F32, [2]);
+    const parameter1 = xla.parameter(builder, 0, vec2_shape, "x");
+    const computation = builder.build(xla.log(parameter1));
+
+    // Compile the computation.
+    const loaded_executable = client.compile(computation, {});
+
+    // Execute the computation.
+    const argument1_literal = xla.Literal.createR1(xla.PrimitiveType.F32, [1, 2]);
+    const results = loaded_executable.execute([[client.bufferFromHostLiteral(argument1_literal)]], {});
+
+    // Extract the resulting scalar.
+    const result_buffer = results[0][0];
+    const result_literal = result_buffer.toLiteralSync();
+
+    expect(result_literal.shape().dimensions()).toStrictEqual([2]);
+    expect(result_literal.data(xla.PrimitiveType.F32)[0]).toBeCloseTo(0);
+    expect(result_literal.data(xla.PrimitiveType.F32)[1]).toBeCloseTo(0.697);
+  });
+
   test("can compute sum along axis", () => {
     const add_builder = new xla.XlaBuilder("scalar_add");
     const scalar_shape = xla.Shape.forArray(xla.PrimitiveType.F32, []);

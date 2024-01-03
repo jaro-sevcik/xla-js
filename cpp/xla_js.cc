@@ -975,6 +975,16 @@ Napi::Value Div(const Napi::CallbackInfo &info) {
   RETURN_OP(xla::Div(*lhs, *rhs));
 }
 
+Napi::Value Exp(const Napi::CallbackInfo &info) {
+  auto [input] = match<xla::XlaOp *>(info, "exp");
+  RETURN_OP(xla::Exp(*input));
+}
+
+Napi::Value Log(const Napi::CallbackInfo &info) {
+  auto [input] = match<xla::XlaOp *>(info, "log");
+  RETURN_OP(xla::Log(*input));
+}
+
 Napi::Value DotGeneral(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   auto [lhs, rhs, lhs_contracting_dims, rhs_contracting_dims, lhs_batch_dims,
@@ -1081,6 +1091,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set(Napi::String::New(env, "sub"), Napi::Function::New<Sub>(env));
   exports.Set(Napi::String::New(env, "mul"), Napi::Function::New<Mul>(env));
   exports.Set(Napi::String::New(env, "div"), Napi::Function::New<Div>(env));
+  exports.Set(Napi::String::New(env, "exp"), Napi::Function::New<Exp>(env));
+  exports.Set(Napi::String::New(env, "log"), Napi::Function::New<Log>(env));
   exports.Set(Napi::String::New(env, "dotGeneral"),
               Napi::Function::New<DotGeneral>(env));
   exports.Set(Napi::String::New(env, "broadcast"),

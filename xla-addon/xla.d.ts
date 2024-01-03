@@ -52,6 +52,8 @@ export function sub(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function max(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function mul(lhs: XlaOp, rhs: XlaOp): XlaOp;
 export function div(lhs: XlaOp, rhs: XlaOp): XlaOp;
+export function exp(input: XlaOp): XlaOp;
+export function log(input: XlaOp): XlaOp;
 export function dotGeneral(
   lhs: XlaOp,
   rhs: XlaOp,
