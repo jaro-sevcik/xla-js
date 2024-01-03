@@ -187,7 +187,7 @@ describe("XLA client", () => {
     const result_literal = result_buffer.toLiteralSync();
 
     expect(result_literal.shape().dimensions()).toStrictEqual([]);
-    expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual(30);
+    expect(result_literal.data(xla.PrimitiveType.F32)).toStrictEqual([30]);
   });
 });
 
