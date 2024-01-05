@@ -35,6 +35,11 @@ export type Broadcast = {
   new_sizes: number[];
 };
 
+export type ReduceSum = {
+  primitive: "reduceSum";
+  axes: number[];
+};
+
 export type Constant = {
   primitive: "constant";
   value: Tensor;
@@ -44,7 +49,7 @@ export type Block = {
   primitive: "block";
 };
 
-export type Primitive = Mul | Add | DotGeneral | Transpose | Reshape | Broadcast | Constant | Block;
+export type Primitive = Mul | Add | DotGeneral | Transpose | Reshape | Broadcast | ReduceSum | Constant | Block;
 
 function assertNever(x: never): never {
   throw new Error("Unexpected value: " + x);
@@ -84,7 +89,12 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       }
       return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
     case "constant":
+      assert.strictEqual(input_shapes.length, 0);
       return [this.value.shape()];
+    case "reduceSum": {
+      assert.strictEqual(input_shapes.length, 1);
+      return [input_shapes[0].removeAxes(this.axes)];
+    }
   }
   assertNever(this);
 }
@@ -137,6 +147,16 @@ export abstract class Trace<T extends Shaped> {
         dimensions,
       } satisfies DotGeneral,
       [lhs, rhs],
+    )[0];
+  }
+
+  reduceSum(input: T, axes: number[]): T {
+    return this.primitive(
+      {
+        primitive: "reduceSum",
+        axes,
+      } satisfies ReduceSum,
+      [input],
     )[0];
   }
 
@@ -207,6 +227,9 @@ export class EvalTrace extends Trace<Tensor> {
       case "broadcast":
         assert.strictEqual(inputs.length, 1);
         return [inputs[0].broadcast(p.new_sizes)];
+      case "reduceSum":
+        assert.strictEqual(inputs.length, 1);
+        return [inputs[0].reduceSum(p.axes)];
       case "block":
         throw new Error(`Block not implemented`);
     }
@@ -429,7 +452,6 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           break;
         }
         case "dotGeneralLeft": {
-          console.log("!!!!!!");
           const { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
             e.dimensions,
             value.shape().rank(),
@@ -452,7 +474,6 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           rhs_order.sort((l, r) => contracting_rhs[l] - contracting_rhs[r]);
           const contracting_indexes = rhs_order.map((i) => contracting_lhs[i]);
           const permutation = Permutation.invert(batch_lhs.concat(other_lhs, contracting_indexes));
-          console.log("Permutation", permutation);
           const transposed = this.#inner.transpose(transposed_product, permutation);
           context.addToValue(e.lhs, transposed);
           break;

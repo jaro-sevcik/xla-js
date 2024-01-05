@@ -65,6 +65,23 @@ export class Tensor {
     return new Tensor(new Shape(this.shape().element_type(), new_sizes), results[0][0]);
   }
 
+  reduceSum(axes: number[]): Tensor {
+    // TODO(jarin) Cache the scalar adder!
+    const add_builder = new xla.XlaBuilder("scalar_add");
+    const scalar_shape = xla.Shape.forArray(xla.PrimitiveType.F32, []);
+    const add_parameter1 = xla.parameter(add_builder, 0, scalar_shape, "x");
+    const add_parameter2 = xla.parameter(add_builder, 1, scalar_shape, "y");
+    const add_computation = add_builder.build(xla.add(add_parameter1, add_parameter2));
+
+    const builder = new xla.XlaBuilder("reduceSum");
+    const node = xla.parameter(builder, 0, this.#xlaShape(), "input");
+    const zero = xla.constantR0(builder, this.shape().element_type(), 0);
+    const computation = builder.build(xla.reduce(builder, node, zero, add_computation, axes));
+    const executable = xlaClient.compile(computation, {});
+    const results = executable.execute([[this.#ensureBuffer()]], {});
+    return new Tensor(this.shape().removeAxes(axes), results[0][0]);
+  }
+
   toLiteral(): TensorLiteral {
     const rank = this.shape().rank();
     let data = this.data();

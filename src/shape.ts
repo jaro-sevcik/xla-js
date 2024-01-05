@@ -43,7 +43,7 @@ export class Shape {
   static dotGeneral(
     lhs: Shape,
     rhs: Shape,
-    { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs }: DotGeneralDimensions
+    { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs }: DotGeneralDimensions,
   ): Shape {
     const lhs_dims = [...lhs.dimensions()];
     const rhs_dims = [...rhs.dimensions()];
@@ -64,7 +64,7 @@ export class Shape {
       assert.strictEqual(
         lhs_dims[contracting_lhs[i]],
         rhs_dims[contracting_rhs[i]],
-        "Contracting dimension sizes must match"
+        "Contracting dimension sizes must match",
       );
       lhs_dims[contracting_lhs[i]] = -1;
       rhs_dims[contracting_rhs[i]] = -1;
@@ -86,6 +86,20 @@ export class Shape {
     for (let i = 0; i < permutation.length; i++) {
       assert.ok(dimensions[i] === -1, "Duplicate indices in transpose permutation");
       dimensions[i] = this.#dimensions[permutation[i]];
+    }
+    return new Shape(this.#type, dimensions);
+  }
+
+  removeAxes(axes: number[]): Shape {
+    const rank = this.rank();
+    const dimensions = [...this.dimensions()];
+    let last = -1;
+    let removed = 0;
+    for (const axis of axes) {
+      assert.ok(last < axis, "Axes must be in ascending order");
+      assert.ok(axis < rank, "Axes must be lower than rank");
+      dimensions.splice(axis - removed, 1);
+      removed++;
     }
     return new Shape(this.#type, dimensions);
   }
