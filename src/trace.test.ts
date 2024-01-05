@@ -79,4 +79,55 @@ describe("Trace", () => {
     const x = Tensor.literal([1, 2, 3, 4]);
     expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([1, 1, 1, 1]);
   });
+
+  test("can compute gradient of 2d sum via dot-product", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      const ones = t.constant(Tensor.ones(x.shape()));
+      return [t.dotGeneral(x, ones, { contracting_lhs: [0, 1], contracting_rhs: [0, 1], batch_lhs: [], batch_rhs: [] })];
+    }
+
+    const grad_sum = grad(sum);
+
+    const x = Tensor.literal([[1, 2], [3, 4]]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([[1, 1], [1, 1]]);
+  });
+
+  test("can compute gradient of 2d square dot-product", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      return [t.dotGeneral(x, x, { contracting_lhs: [0, 1], contracting_rhs: [0, 1], batch_lhs: [], batch_rhs: [] })];
+    }
+
+    const grad_sum = grad(sum);
+
+    const x = Tensor.literal([[1, 2], [3, 4]]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([[2, 4], [6, 8]]);
+  });
+
+  test("can compute gradient of 2d square dot-product swapped rhs contraction", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      return [t.dotGeneral(x, x, { contracting_lhs: [0, 1], contracting_rhs: [1, 0], batch_lhs: [], batch_rhs: [] })];
+    }
+    const grad_sum = grad(sum);
+    const x = Tensor.literal([[1, 2], [3, 4]]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([[2, 6], [4, 8]]);
+  });
+
+  test("can compute gradient of 2d square dot-product swapped lhs contraction", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      return [t.dotGeneral(x, x, { contracting_lhs: [1, 0], contracting_rhs: [0, 1], batch_lhs: [], batch_rhs: [] })];
+    }
+    const grad_sum = grad(sum);
+    const x = Tensor.literal([[1, 2], [3, 4]]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([[2, 6], [4, 8]]);
+  });
+
+  test("can compute gradient of transpose (and dot-product)", () => {
+    function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      const transposed = t.transpose(x, [1, 0]);
+      return [t.dotGeneral(x, transposed, { contracting_lhs: [0, 1], contracting_rhs: [0, 1], batch_lhs: [], batch_rhs: [] })];
+    }
+    const grad_sum = grad(sum);
+    const x = Tensor.literal([[1, 2], [3, 4]]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([[2, 6], [4, 8]]);
+  });  
 });

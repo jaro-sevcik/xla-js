@@ -73,7 +73,7 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       assert.strictEqual(input_shapes.length, 1);
       assert.strictEqual(
         input_shapes[0].total_size(),
-        this.new_sizes.reduce((s, v) => s * v, 1)
+        this.new_sizes.reduce((s, v) => s * v, 1),
       );
       return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
     case "broadcast":
@@ -97,7 +97,7 @@ export abstract class Trace<T extends Shaped> {
       {
         primitive: "mul",
       } satisfies Mul,
-      [lhs, rhs]
+      [lhs, rhs],
     )[0];
   }
 
@@ -106,7 +106,7 @@ export abstract class Trace<T extends Shaped> {
       {
         primitive: "add",
       } satisfies Add,
-      [lhs, rhs]
+      [lhs, rhs],
     )[0];
   }
 
@@ -116,7 +116,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "constant",
         value,
       } satisfies Constant,
-      []
+      [],
     )[0];
   }
 
@@ -126,7 +126,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "constant",
         value: Tensor.literal(value),
       } satisfies Constant,
-      []
+      [],
     )[0];
   }
 
@@ -136,7 +136,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "dotGeneral",
         dimensions,
       } satisfies DotGeneral,
-      [lhs, rhs]
+      [lhs, rhs],
     )[0];
   }
 
@@ -159,7 +159,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "transpose",
         permutation,
       } satisfies Transpose,
-      [input]
+      [input],
     )[0];
   }
 
@@ -169,7 +169,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "reshape",
         new_sizes,
       } satisfies Reshape,
-      [input]
+      [input],
     )[0];
   }
 
@@ -179,7 +179,7 @@ export abstract class Trace<T extends Shaped> {
         primitive: "broadcast",
         new_sizes,
       } satisfies Broadcast,
-      [input]
+      [input],
     )[0];
   }
 }
@@ -288,7 +288,7 @@ class LinearExpressionEvakuationContext<T extends Shaped> {
 class GradTracer<T extends Shaped> implements Shaped {
   constructor(
     readonly value: T,
-    readonly grad: LinearExpressionValue
+    readonly grad: LinearExpressionValue,
   ) {}
 
   shape(): Shape {
@@ -316,7 +316,7 @@ type DotGeneralFullDimensions = {
 function dotGeneralFullDims(
   { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs }: DotGeneralDimensions,
   lhs_rank: number,
-  rhs_rank: number
+  rhs_rank: number,
 ): DotGeneralFullDimensions {
   // Compute the remaining dims (after removing batch and contracting dims) for lhs and rhs.
   let other_rhs = range(0, rhs_rank);
@@ -370,7 +370,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
     lhs: LinearExpressionValue,
     rhs: T,
     dimensions: DotGeneralDimensions,
-    shape: Shape
+    shape: Shape,
   ): LinearExpressionValue {
     if (lhs.kind === "zero") return lhs;
     const index = this.addExpression(shape, {
@@ -386,7 +386,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
     lhs: T,
     rhs: LinearExpressionValue,
     dimensions: DotGeneralDimensions,
-    shape: Shape
+    shape: Shape,
   ): LinearExpressionValue {
     if (rhs.kind === "zero") return rhs;
     const index = this.addExpression(shape, {
@@ -408,7 +408,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
     const context = new LinearExpressionEvakuationContext(
       this.#linearGraph.input_shapes,
       expression_shapes,
-      this.#inner
+      this.#inner,
     );
 
     context.addToValue(from, this.#inner.constant(Tensor.constantR0(1.0)));
@@ -429,10 +429,11 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           break;
         }
         case "dotGeneralLeft": {
-          const { contracting_lhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
+          console.log("!!!!!!");
+          const { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
             e.dimensions,
             value.shape().rank(),
-            e.rhs.shape().rank()
+            e.rhs.shape().rank(),
           );
 
           // Compute the dimensions for the trannsposed product.
@@ -445,17 +446,22 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           const transposed_product = this.#inner.dotGeneral(value, e.rhs, transposed_dims);
 
           // Transposed product starts with batch dims, then lhs other dims and finally the contracting dims.
-          // Let us shuffle them around.
-          const permutation = Permutation.invert(batch_lhs.concat(other_lhs, contracting_lhs));
+          // Let us shuffle them around. Note that the contracting dims are in the rhs order, so we first
+          // need to permute the contracting dims to the index order and to the lhs order.
+          const rhs_order = range(0, contracting_rhs.length);
+          rhs_order.sort((l, r) => contracting_rhs[l] - contracting_rhs[r]);
+          const contracting_indexes = rhs_order.map((i) => contracting_lhs[i]);
+          const permutation = Permutation.invert(batch_lhs.concat(other_lhs, contracting_indexes));
+          console.log("Permutation", permutation);
           const transposed = this.#inner.transpose(transposed_product, permutation);
           context.addToValue(e.lhs, transposed);
           break;
         }
         case "dotGeneralRight": {
-          const { contracting_rhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
+          const { contracting_lhs, contracting_rhs, batch_lhs, batch_rhs, other_lhs, other_rhs } = dotGeneralFullDims(
             e.dimensions,
             e.lhs.shape().rank(),
-            value.shape().rank()
+            value.shape().rank(),
           );
 
           // Compute the dimensions for the trannsposed product.
@@ -468,8 +474,12 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           const transposed_product = this.#inner.dotGeneral(e.lhs, value, transposed_dims);
 
           // Transposed product starts with batch dims, then lhs other dims and finally the contracting dims.
-          // Let us shuffle them around.
-          const permutation = Permutation.invert(batch_rhs.concat(contracting_rhs, other_rhs));
+          // Let us shuffle them around. Note that the contracting dims are in the lhs order, so we first
+          // need to permute the contracting dims to the index order and to the rhs order.
+          const lhs_order = range(0, contracting_lhs.length);
+          lhs_order.sort((l, r) => contracting_lhs[l] - contracting_lhs[r]);
+          const contracting_indexes = lhs_order.map((i) => contracting_rhs[i]);
+          const permutation = Permutation.invert(batch_rhs.concat(contracting_indexes, other_rhs));
           const transposed = this.#inner.transpose(transposed_product, permutation);
           context.addToValue(e.rhs, transposed);
           break;
@@ -497,7 +507,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
         const grad = this.linearAdd(
           this.linearMul(inputs[0].grad, inputs[1].value, shape),
           this.linearMul(inputs[1].grad, inputs[0].value, shape),
-          shape
+          shape,
         );
         return [new GradTracer(value, grad)];
       }
@@ -515,7 +525,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
         const grad = this.linearAdd(
           this.linearDotGeneralLeft(inputs[0].grad, inputs[1].value, p.dimensions, shape),
           this.linearDotGeneralRight(inputs[0].value, inputs[1].grad, p.dimensions, shape),
-          shape
+          shape,
         );
         return [new GradTracer(value, grad)];
       }
@@ -526,7 +536,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
 
 export const grad = (
   fun: <U extends Shaped>(t: Trace<U>, ...x: U[]) => U[],
-  grad_input_count: number = 1
+  grad_input_count: number = 1,
 ): (<T extends Shaped>(t: Trace<T>, ...x: T[]) => T[]) => {
   return <T extends Shaped>(inner: Trace<T>, ...inputs: T[]) => {
     // Create the gradient trace and tracer for each parameter.
@@ -540,6 +550,7 @@ export const grad = (
     // Run the function on the gradient tracer.
     const result = fun(grad_trace, ...param_tracers);
     assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].value.shape().rank(), 0, "grad only computes gradient of scalar-valued functions");
     // Evaluate the gnerated gradient graph backwards and return the result.
     return grad_trace.evaluateGraphBackwards(result[0].grad);
   };
