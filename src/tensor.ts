@@ -56,10 +56,10 @@ export class Tensor {
     return new Tensor(new Shape(this.shape().element_type(), new_sizes), results[0][0]);
   }
 
-  broadcast(new_sizes: number[]): Tensor {
+  broadcastInDim(new_sizes: number[], broadcast_dimensions: number[]): Tensor {
     const builder = new xla.XlaBuilder("reshape");
     const node = xla.parameter(builder, 0, this.#xlaShape(), "lhs");
-    const computation = builder.build(xla.broadcast(node, new_sizes));
+    const computation = builder.build(xla.broadcastInDim(node, new_sizes, broadcast_dimensions));
     const executable = xlaClient.compile(computation, {});
     const results = executable.execute([[this.#ensureBuffer()]], {});
     return new Tensor(new Shape(this.shape().element_type(), new_sizes), results[0][0]);

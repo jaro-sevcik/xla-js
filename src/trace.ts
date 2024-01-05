@@ -33,6 +33,7 @@ export type Reshape = {
 export type Broadcast = {
   primitive: "broadcast";
   new_sizes: number[];
+  broadcast_dimensions: number[];
 };
 
 export type ReduceSum = {
@@ -193,11 +194,15 @@ export abstract class Trace<T extends Shaped> {
     )[0];
   }
 
-  broadcast(input: T, new_sizes: number[]): T {
+  broadcast(input: T, new_sizes: number[], broadcast_dimensions?: number[]): T {
+    if (!broadcast_dimensions) {
+      broadcast_dimensions = range(0, new_sizes.length);
+    }
     return this.primitive(
       {
         primitive: "broadcast",
         new_sizes,
+        broadcast_dimensions,
       } satisfies Broadcast,
       [input],
     )[0];
@@ -226,7 +231,7 @@ export class EvalTrace extends Trace<Tensor> {
         return [inputs[0].reshape(p.new_sizes)];
       case "broadcast":
         assert.strictEqual(inputs.length, 1);
-        return [inputs[0].broadcast(p.new_sizes)];
+        return [inputs[0].broadcastInDim(p.new_sizes, p.broadcast_dimensions)];
       case "reduceSum":
         assert.strictEqual(inputs.length, 1);
         return [inputs[0].reduceSum(p.axes)];
