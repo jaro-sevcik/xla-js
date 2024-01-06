@@ -274,13 +274,26 @@ type LinearExpressionTranspose = {
   input: LinearExpressionValue;
   permutation: number[];
 };
+type LinearExpressionBroadcast = {
+  kind: "broadcast";
+  input: LinearExpressionValue;
+  sizes: number[];
+  broadcastDimensions: number[];
+};
+type LinearExpressionReduceSum = {
+  kind: "reduceSum";
+  input: LinearExpressionValue;
+  axes: number[];
+};
 
 type LinearExpression<T> =
   | LinearExpressionMul<T>
   | LinearExpressionAdd
   | LinearExpressionDotLeft<T>
   | LinearExpressionDotRight<T>
-  | LinearExpressionTranspose;
+  | LinearExpressionTranspose
+  | LinearExpressionBroadcast
+  | LinearExpressionReduceSum;
 
 class LinearGraph<T> {
   expressions: { shape: Shape; expression: LinearExpression<T> }[] = [];
@@ -288,7 +301,7 @@ class LinearGraph<T> {
   constructor(readonly input_shapes: Shape[]) {}
 }
 
-class LinearExpressionEvakuationContext<T extends Shaped> {
+class LinearExpressionEvaluationContext<T extends Shaped> {
   values: T[];
   inputs: T[];
   #trace: Trace<T>;
@@ -309,6 +322,17 @@ class LinearExpressionEvakuationContext<T extends Shaped> {
         break;
       case "zero":
         break;
+    }
+  }
+
+  shape(index: LinearExpressionValue): Shape {
+    switch (index.kind) {
+      case "expr":
+        return this.values[index.index].shape();
+      case "input":
+        return this.inputs[index.index].shape();
+      case "zero":
+        return index.shape;
     }
   }
 }
@@ -389,8 +413,30 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
   }
 
   linearTranspose(input: LinearExpressionValue, permutation: number[], shape: Shape): LinearExpressionValue {
-    if (input.kind === "zero") return input;
-    const index = this.addExpression(shape.transpose(permutation), { kind: "transpose", input, permutation });
+    if (input.kind === "zero") return { kind: "zero", shape };
+    const index = this.addExpression(shape, { kind: "transpose", input, permutation });
+    return { kind: "expr", index };
+  }
+
+  linearBroadcast(
+    input: LinearExpressionValue,
+    new_sizes: number[],
+    broadcast_dimensions: number[],
+    shape: Shape,
+  ): LinearExpressionValue {
+    if (input.kind === "zero") return { kind: "zero", shape };
+    const index = this.addExpression(shape, {
+      kind: "broadcast",
+      input,
+      sizes: new_sizes,
+      broadcastDimensions: broadcast_dimensions,
+    });
+    return { kind: "expr", index };
+  }
+
+  linearReduceSum(input: LinearExpressionValue, axes: number[], shape: Shape): LinearExpressionValue {
+    if (input.kind === "zero") return { kind: "zero", shape };
+    const index = this.addExpression(shape, { kind: "reduceSum", input, axes });
     return { kind: "expr", index };
   }
 
@@ -433,7 +479,7 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
   evaluateGraphBackwards(from: LinearExpressionValue): T[] {
     const expressions = this.#linearGraph.expressions;
     const expression_shapes = expressions.map(({ shape }) => shape);
-    const context = new LinearExpressionEvakuationContext(
+    const context = new LinearExpressionEvaluationContext(
       this.#linearGraph.input_shapes,
       expression_shapes,
       this.#inner,
@@ -454,6 +500,23 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           break;
         case "transpose": {
           context.addToValue(e.input, this.#inner.transpose(value, Permutation.invert(e.permutation)));
+          break;
+        }
+        case "broadcast": {
+          throw new Error("Not implemented");
+        }
+        case "reduceSum": {
+          const sizes = context.shape(e.input).dimensions();
+          const dims: number[] = [];
+          let finger = 0;
+          for (let i = 0; i < sizes.length; i++) {
+            if (finger < e.axes.length && e.axes[finger] === i) {
+              finger++; // This is a summed dimension, let us skip it in broadcasted dimensions.
+            } else {
+              dims.push(i);
+            }
+          }
+          context.addToValue(e.input, this.#inner.broadcast(value, sizes, dims));
           break;
         }
         case "dotGeneralLeft": {
@@ -542,6 +605,20 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
         const value = this.#inner.transpose(inputs[0].value, p.permutation);
         const shape = value.shape();
         const grad = this.linearTranspose(inputs[0].grad, p.permutation, shape);
+        return [new GradTracer(value, grad)];
+      }
+      case "broadcast": {
+        assert.strictEqual(inputs.length, 1);
+        const value = this.#inner.broadcast(inputs[0].value, p.new_sizes, p.broadcast_dimensions);
+        const shape = value.shape();
+        const grad = this.linearBroadcast(inputs[0].grad, p.new_sizes, p.broadcast_dimensions, shape);
+        return [new GradTracer(value, grad)];
+      }
+      case "reduceSum": {
+        assert.strictEqual(inputs.length, 1);
+        const value = this.#inner.reduceSum(inputs[0].value, p.axes);
+        const shape = value.shape();
+        const grad = this.linearReduceSum(inputs[0].grad, p.axes, shape);
         return [new GradTracer(value, grad)];
       }
       case "dotGeneral": {
