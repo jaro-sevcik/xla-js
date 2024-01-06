@@ -503,7 +503,31 @@ class GradTrace<T extends Shaped> extends Trace<GradTracer<T>> {
           break;
         }
         case "broadcast": {
-          throw new Error("Not implemented");
+          const input_sizes = context.shape(e.input).dimensions();
+          const axes: number[] = [];
+          const preserved_dims: number[] = [];
+          let finger = 0;
+          for (let i = 0; i < e.sizes.length; i++) {
+            if (finger < e.broadcastDimensions.length && e.broadcastDimensions[finger] === i) {
+              // This is a matching dimension, let us only sum it if it was broadcasted.
+              if (input_sizes[finger] !== e.sizes[i]) {
+                axes.push(i);
+              } else {
+                preserved_dims.push(finger);
+              }
+              finger++;
+            } else {
+              // This dimension does not match anything in the input, so let's sum it.
+              axes.push(i);
+            }
+          }
+          let grads = this.#inner.reduceSum(value, axes);
+          if (input_sizes.length !== preserved_dims.length) {
+            // We need to recover some dimensions, let us use broadcast to do that.
+            grads = this.#inner.broadcast(grads, input_sizes, preserved_dims);
+          }
+          context.addToValue(e.input, grads);
+          break;
         }
         case "reduceSum": {
           const sizes = context.shape(e.input).dimensions();

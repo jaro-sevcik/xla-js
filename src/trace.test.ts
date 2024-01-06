@@ -140,13 +140,33 @@ describe("Trace", () => {
     function sum<T extends Shaped>(t: Trace<T>, x: T): T[] {
       const summed = t.reduceSum(x, [0]);
       const weights = t.constant(Tensor.literal([1, 2]));
-      return [t.dotGeneral(summed, weights, { contracting_lhs: [0], contracting_rhs: [0], batch_lhs: [], batch_rhs: [] })];
+      return [
+        t.dotGeneral(summed, weights, { contracting_lhs: [0], contracting_rhs: [0], batch_lhs: [], batch_rhs: [] }),
+      ];
     }
 
     const grad_sum = grad(sum);
 
-    const x = Tensor.literal([[1, 2], [3, 4]]);
-    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([[1, 2], [1, 2]]);
+    const x = Tensor.literal([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(grad_sum(trace, x)[0].toLiteral()).toStrictEqual([
+      [1, 2],
+      [1, 2],
+    ]);
+  });
+
+  test("can compute gradient of broadcast.", () => {
+    function broadcast_count<T extends Shaped>(t: Trace<T>, x: T): T[] {
+      const b = t.broadcast(x, [3, 4, 2], [0, 2]);
+      return [t.reduceSum(b, [0, 1, 2])];
+    }
+
+    const grad_broadcast_count = grad(broadcast_count);
+
+    const x = Tensor.literal([[1, 2]]);
+    expect(grad_broadcast_count(trace, x)[0].toLiteral()).toStrictEqual([[12, 12]]);
   });
 
   test("can compute gradient of 2d sum via dot-product", () => {
