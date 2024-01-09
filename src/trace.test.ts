@@ -1,5 +1,6 @@
+import { Shaped } from "./shape";
 import { Tensor } from "./tensor";
-import { EvalTrace, Shaped, Trace, grad } from "./trace";
+import { EvalTrace, Trace, grad } from "./trace";
 
 function testfn<T extends Shaped>(trace: Trace<T>, x: T): T[] {
   const exprX2 = trace.mul(x, x);

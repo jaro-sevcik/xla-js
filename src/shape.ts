@@ -11,13 +11,21 @@ export type DotGeneralDimensions = {
   batch_rhs: number[];
 };
 
-export class Shape {
+export interface Shaped {
+  shape(): Shape;
+}
+
+export class Shape implements Shaped {
   #dimensions: number[];
   #type: PrimitiveType;
 
   constructor(type: PrimitiveType, dimensions: number[]) {
     this.#dimensions = dimensions;
     this.#type = type;
+  }
+
+  shape(): Shape {
+    return this;
   }
 
   total_size(): number {

@@ -1,11 +1,7 @@
 import * as Permutation from "./permutation";
-import { DotGeneralDimensions, Shape } from "./shape";
+import { DotGeneralDimensions, Shape, Shaped } from "./shape";
 import { Tensor, TensorLiteral } from "./tensor";
 import { strict as assert } from "assert";
-
-export interface Shaped {
-  shape(): Shape;
-}
 
 export type Mul = {
   primitive: "mul";
@@ -52,12 +48,12 @@ export type Block = {
 
 export type Primitive = Mul | Add | DotGeneral | Transpose | Reshape | Broadcast | ReduceSum | Constant | Block;
 
-function assertNever(x: never): never {
+export function assertNever(x: never): never {
   throw new Error("Unexpected value: " + x);
 }
 
-export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
-  switch (this.primitive) {
+export function output_shapes(p: Primitive, input_shapes: Shape[]): Shape[] {
+  switch (p.primitive) {
     case "add":
       assert.strictEqual(input_shapes.length, 2);
       assert.ok(Shape.isEqual(input_shapes[0], input_shapes[1]));
@@ -68,10 +64,10 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       return [input_shapes[0]];
     case "dotGeneral":
       assert.strictEqual(input_shapes.length, 2);
-      return [Shape.dotGeneral(input_shapes[0], input_shapes[1], this.dimensions)];
+      return [Shape.dotGeneral(input_shapes[0], input_shapes[1], p.dimensions)];
     case "transpose":
       assert.strictEqual(input_shapes.length, 1);
-      return [input_shapes[0].transpose(this.permutation)];
+      return [input_shapes[0].transpose(p.permutation)];
     case "block":
       // TODO
       return [];
@@ -79,25 +75,25 @@ export function output_shapes(this: Primitive, input_shapes: Shape[]): Shape[] {
       assert.strictEqual(input_shapes.length, 1);
       assert.strictEqual(
         input_shapes[0].total_size(),
-        this.new_sizes.reduce((s, v) => s * v, 1),
+        p.new_sizes.reduce((s, v) => s * v, 1),
       );
-      return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
+      return [new Shape(input_shapes[0].element_type(), p.new_sizes)];
     case "broadcast":
       assert.strictEqual(input_shapes.length, 1);
-      assert.strictEqual(input_shapes[0].rank(), this.new_sizes);
-      for (let i = 0; i < this.new_sizes.length; i++) {
-        assert.ok(input_shapes[0].dimensions()[i] === 1 || input_shapes[0].dimensions()[i] === this.new_sizes[i]);
+      assert.strictEqual(input_shapes[0].rank(), p.new_sizes);
+      for (let i = 0; i < p.new_sizes.length; i++) {
+        assert.ok(input_shapes[0].dimensions()[i] === 1 || input_shapes[0].dimensions()[i] === p.new_sizes[i]);
       }
-      return [new Shape(input_shapes[0].element_type(), this.new_sizes)];
+      return [new Shape(input_shapes[0].element_type(), p.new_sizes)];
     case "constant":
       assert.strictEqual(input_shapes.length, 0);
-      return [this.value.shape()];
+      return [p.value.shape()];
     case "reduceSum": {
       assert.strictEqual(input_shapes.length, 1);
-      return [input_shapes[0].removeAxes(this.axes)];
+      return [input_shapes[0].removeAxes(p.axes)];
     }
   }
-  assertNever(this);
+  assertNever(p);
 }
 
 export abstract class Trace<T extends Shaped> {

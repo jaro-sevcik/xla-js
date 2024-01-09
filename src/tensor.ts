@@ -22,11 +22,11 @@ export class Tensor {
   }
 
   data(): number[] {
-    return this.#ensureLiteral().data(this.#shape.element_type());
+    return this.ensureXlaLiteral().data(this.#shape.element_type());
   }
 
   toString(): string {
-    return this.#ensureLiteral().toString();
+    return this.ensureXlaLiteral().toString();
   }
 
   transpose(permutation?: number[]): Tensor {
@@ -122,7 +122,7 @@ export class Tensor {
     return this.#buffer;
   }
 
-  #ensureLiteral(): xla.Literal {
+  ensureXlaLiteral(): xla.Literal {
     if (!this.#literal) {
       if (!this.#buffer) {
         throw new Error("Internal error: Missing literal or buffer on tensor");
